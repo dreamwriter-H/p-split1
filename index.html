@@ -172,7 +172,7 @@
             }
         };
 
-        // --- 拖曳設定錢包元件 ---
+        // --- 拖曳設定錢包元件 (已修復名字顯示) ---
         const WalletSetupScreen = ({ people, onUpdate, onNext, onBack }) => {
             const [localPeople, setLocalPeople] = useState(people);
             const [selectedId, setSelectedId] = useState(null);
@@ -229,6 +229,7 @@
 
                     <div className="flex-1 overflow-y-auto content-start grid grid-cols-2 gap-4 auto-rows-min">
                         {wallets.map(w => {
+                            // 修復：正確取得顯示名稱 (包含預設動物名)
                             const masterName = getPersonNameHelper(w.master.id, localPeople);
                             
                             return (
@@ -243,6 +244,7 @@
                                     <div className="w-16 h-16 rounded-full bg-gradient-to-br from-orange-100 to-amber-100 flex items-center justify-center text-2xl font-bold text-orange-600 shadow-sm mb-2">
                                         {masterName[0]}
                                     </div>
+                                    {/* 這裡原本只有 w.master.name，改成 masterName 以支援預設暱稱 */}
                                     <span className="font-bold text-slate-700 truncate max-w-full">{masterName}</span>
                                     {w.children.length > 0 && <span className="text-xs text-slate-400">錢包主</span>}
 
@@ -607,15 +609,14 @@
             const handleGenerateMessage = async () => {
                 setIsGenerating(true);
                 const debts = results.map(r => `${r.name}：${formatMoney(Math.round(r.amount))}`).join('\n');
-                const prompt = `你是一個親切的記帳小幫手。
-                請依照以下模板產生結算文案，不要改變語氣，直接填入數據：
-
-                感謝大家參與「${data.title}」聚餐，雖然快樂無價，但帳單還是要面對XD，這邊幫大家算好囉，帳單如下：
-
+                const prompt = `請為「${data.title}」這場聚餐產生一段結算文案。
+                風格：親切、直白、台灣口語（類似 Line 群組對話）。
+                結構：
+                1. 簡短前言（1-2句）：例如「快樂無價，帳單面對XD」、「大家辛苦了，結帳囉」，請隨機發揮不同寫法，不要每次一樣。
+                2. 帳單明細：
                 ${debts}
-
-                總金額：${formatMoney(Math.round(finalTotal))}
-                `;
+                3. 總金額：${formatMoney(Math.round(finalTotal))}`;
+                
                 try {
                     const res = await callGemini({ contents: [{ parts: [{ text: prompt }] }] });
                     setAiMessage(res.candidates[0].content.parts[0].text);
@@ -787,13 +788,13 @@
             const handleGenerateMessage = async () => {
                 setIsGenerating(true);
                 const txText = transactions.map(t => `${getPersonNameHelper(t.from, trip.people)} 需支付 ${getPersonNameHelper(t.to, trip.people)} ${formatMoney(Math.round(t.amount))}`).join('\n');
-                const prompt = `你是一個親切的記帳小幫手。
-                請依照以下模板產生結算文案，不要改變語氣，直接填入數據：
-
-                感謝大家參與「${trip.name}」，雖然快樂無價，但帳單還是要面對XD，這邊幫大家算好囉，建議轉帳明細如下：
-
-                ${txText}
-                `;
+                const prompt = `請為「${trip.name}」這場活動產生一段結算文案。
+                風格：親切、直白、台灣口語（類似 Line 群組對話）。
+                結構：
+                1. 簡短前言（1-2句）：例如「快樂無價，帳單面對XD」、「大家辛苦了，結帳囉」，請隨機發揮不同寫法，不要每次一樣。
+                2. 建議轉帳明細：
+                ${txText}`;
+                
                 try {
                     const res = await callGemini({ contents: [{ parts: [{ text: prompt }] }] });
                     setAiMessage(res.candidates[0].content.parts[0].text);
