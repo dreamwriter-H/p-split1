@@ -172,7 +172,7 @@
             }
         };
 
-        // --- 拖曳設定錢包元件 (名字顯示修復版) ---
+        // --- 拖曳設定錢包元件 ---
         const WalletSetupScreen = ({ people, onUpdate, onNext, onBack }) => {
             const [localPeople, setLocalPeople] = useState(people);
             const [selectedId, setSelectedId] = useState(null);
@@ -229,7 +229,7 @@
 
                     <div className="flex-1 overflow-y-auto content-start grid grid-cols-2 gap-4 auto-rows-min">
                         {wallets.map(w => {
-                            // 修復：使用 helper 確保顯示正確暱稱
+                            // 修復：使用 getPersonNameHelper 確保顯示正確暱稱
                             const masterName = getPersonNameHelper(w.master.id, localPeople);
                             
                             return (
@@ -617,13 +617,9 @@
 
                 【內容結構】
                 1. 開場白（1句）：用輕鬆口語（如「快樂無價，帳單面對XD」、「大家辛苦了，結帳囉」），請隨機發揮不同寫法。
-                2. 帳單明細（請照以下格式）：
-                ．阿明：$500
-                ．小美：$300
-                3. 總金額：Total $${Math.round(finalTotal)}
-                
-                【數據來源】
+                2. 帳單明細（請將以下數據整理為條列式，格式為「．姓名：金額」）：
                 ${debts}
+                3. 總金額：Total ${formatMoney(Math.round(finalTotal))}
                 `;
                 
                 try {
@@ -806,11 +802,7 @@
 
                 【內容結構】
                 1. 開場白（1句）：用輕鬆口語（如「旅遊結束來算帳囉」、「轉帳轉起來～」），請隨機發揮不同寫法。
-                2. 建議轉帳明細（請照以下格式，A 給 B 金額）：
-                ．阿明 付給 小美 $500
-                ．老王 付給 小美 $200
-
-                【數據來源】
+                2. 建議轉帳明細（請將以下數據整理為條列式，格式為「．A 付給 B $金額」）：
                 ${txText}`;
                 
                 try {
