@@ -606,8 +606,16 @@
 
             const handleGenerateMessage = async () => {
                 setIsGenerating(true);
-                const debts = results.map(r => `${r.name} 應付 $${Math.round(r.amount)}`).join(', ');
-                const prompt = `你是一個客觀記帳助手。請產生簡短結算訊息。聚餐：${data.title} (${data.date})\n總金額：${formatMoney(Math.round(finalTotal))}\n每人：${debts}\n要求：直球對決，第一行寫日期+目的，接著總金額，最後列表。`;
+                const debts = results.map(r => `${r.name}：${formatMoney(Math.round(r.amount))}`).join('\n');
+                const prompt = `你是一個親切的記帳小幫手。
+                請依照以下模板產生結算文案，不要改變語氣，直接填入數據：
+
+                感謝大家參與「${data.title}」聚餐，雖然快樂無價，但帳單還是要面對XD，這邊幫大家算好囉，帳單如下：
+
+                ${debts}
+
+                總金額：${formatMoney(Math.round(finalTotal))}
+                `;
                 try {
                     const res = await callGemini({ contents: [{ parts: [{ text: prompt }] }] });
                     setAiMessage(res.candidates[0].content.parts[0].text);
@@ -779,7 +787,13 @@
             const handleGenerateMessage = async () => {
                 setIsGenerating(true);
                 const txText = transactions.map(t => `${getPersonNameHelper(t.from, trip.people)} 需支付 ${getPersonNameHelper(t.to, trip.people)} ${formatMoney(Math.round(t.amount))}`).join('\n');
-                const prompt = `你是一個客觀工具。請產生結算公告。旅遊：${trip.name}\n轉帳：\n${txText}\n要求：直球對決，第一行寫旅遊名稱結算，接著列出誰給誰多少。`;
+                const prompt = `你是一個親切的記帳小幫手。
+                請依照以下模板產生結算文案，不要改變語氣，直接填入數據：
+
+                感謝大家參與「${trip.name}」，雖然快樂無價，但帳單還是要面對XD，這邊幫大家算好囉，建議轉帳明細如下：
+
+                ${txText}
+                `;
                 try {
                     const res = await callGemini({ contents: [{ parts: [{ text: prompt }] }] });
                     setAiMessage(res.candidates[0].content.parts[0].text);
