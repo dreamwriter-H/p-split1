@@ -172,7 +172,7 @@
             }
         };
 
-        // --- 拖曳設定錢包元件 ---
+        // --- 拖曳設定錢包元件 (名字顯示修復版) ---
         const WalletSetupScreen = ({ people, onUpdate, onNext, onBack }) => {
             const [localPeople, setLocalPeople] = useState(people);
             const [selectedId, setSelectedId] = useState(null);
@@ -229,7 +229,7 @@
 
                     <div className="flex-1 overflow-y-auto content-start grid grid-cols-2 gap-4 auto-rows-min">
                         {wallets.map(w => {
-                            // 修復：使用 getPersonNameHelper 確保顯示正確暱稱
+                            // 修復：使用 helper 確保顯示正確暱稱
                             const masterName = getPersonNameHelper(w.master.id, localPeople);
                             
                             return (
@@ -407,7 +407,7 @@
             useEffect(() => { if (JSON.stringify(data) !== JSON.stringify(projectData)) onUpdate(data); }, [data]);
 
             const updateData = (key, value) => setData(prev => ({ ...prev, [key]: value }));
-            const addPerson = () => { const used = data.people.map(p=>p.name); setData(prev => ({...prev, people: [...prev.people, { id: Date.now(), name: '', payerId: Date.now() }] })); };
+            const addPerson = () => { const used = data.people.map(p=>p.name); setData(prev => ({...prev, people: [...prev.people, { id: Date.now(), name: '' }] })); };
             const removePerson = (id) => { if(data.people.length > 1) setData(prev => ({ ...prev, people: prev.people.filter(p => p.id !== id) })); };
             const updatePersonName = (id, name) => setData(prev => ({ ...prev, people: prev.people.map(p => p.id === id ? { ...p, name } : p) }));
             const getDisplayName = (person, index) => person.name || ANIMAL_NAMES[(person.id + index) % ANIMAL_NAMES.length];
@@ -437,64 +437,24 @@
                 if (data.serviceChargeType === 'percent') { scAmt = bill * (scValue / 100); final = bill + scAmt; } 
                 else { scAmt = scValue; final = bill + scAmt; }
                 const results = [];
-                
-                // 暫存每個人的應付金額
-                let rawDebts = {};
-                data.people.forEach(p => rawDebts[p.id] = 0);
-
                 if (data.splitMode === 'even') {
                     const per = final / data.people.length;
-                    data.people.forEach(p => rawDebts[p.id] = per);
+                    data.people.forEach((p, i) => results.push({ name: getDisplayName(p, i), amount: per, detail: `均攤` }));
                 } else {
-                    data.people.forEach(p => {
+                    data.people.forEach((p, i) => {
                         const raw = parseFloat(data.customAmounts[p.id]) || 0;
                         let personFinal = 0;
                         if (data.serviceChargeType === 'percent') personFinal = raw * (1 + (scValue / 100));
                         else { const ratio = bill > 0 ? (raw / bill) : (1 / data.people.length); personFinal = raw + (scAmt * ratio); }
-                        rawDebts[p.id] = personFinal;
+                        results.push({ name: getDisplayName(p, i), amount: personFinal, detail: `餐費 $${raw}` });
                     });
                 }
-
-                // 處理錢包合併
-                const finalDebts = {};
-                data.people.forEach(p => {
-                    const payerId = p.payerId && p.payerId !== p.id ? p.payerId : p.id;
-                    finalDebts[payerId] = (finalDebts[payerId] || 0) + rawDebts[p.id];
-                });
-
-                // 產生顯示列表 (只顯示需要付錢的人)
-                const displayResults = [];
-                data.people.forEach((p, i) => {
-                    // 如果我是主錢包，且我有金額要付 (包含別人掛給我的)
-                    if ((!p.payerId || p.payerId === p.id) && finalDebts[p.id] > 0) {
-                        // 找出所有掛在我名下的人
-                        const children = data.people.filter(child => child.payerId === p.id && child.id !== p.id);
-                        const names = [getDisplayName(p, i), ...children.map((c, ci) => getDisplayName(c, i+ci+1))].join(' + ');
-                        
-                        displayResults.push({
-                            name: names, // 顯示 "A + B + C"
-                            amount: finalDebts[p.id],
-                            detail: children.length > 0 ? '(含合併)' : ''
-                        });
-                    }
-                });
-
-                return { finalTotal: final, serviceChargeAmount: scAmt, results: displayResults };
+                return { finalTotal: final, serviceChargeAmount: scAmt, results };
             };
-
-            // 如果是在錢包設定步驟
-            if (step === 2.5) {
-                return <WalletSetupScreen 
-                    people={data.people} 
-                    onUpdate={(newPeople) => updateData('people', newPeople)}
-                    onNext={() => setStep(3)}
-                    onBack={() => setStep(2)}
-                />;
-            }
 
             return (
                 <div className="pb-20">
-                    <div className="flex gap-1 h-1 mb-6 px-6 pt-6">{[1, 2, 3, 4].map(s => <div key={s} className={`flex-1 rounded-full ${s <= Math.floor(step) ? 'bg-orange-500' : 'bg-slate-200'}`} />)}</div>
+                    <div className="flex gap-1 h-1 mb-6 px-6 pt-6">{[1, 2, 3, 4].map(s => <div key={s} className={`flex-1 rounded-full ${s <= step ? 'bg-orange-500' : 'bg-slate-200'}`} />)}</div>
                     {step === 1 && (
                         <div className="px-6 animate-fade-in">
                             <h2 className="text-2xl font-bold mb-6">這次聚餐是...</h2>
@@ -520,7 +480,7 @@
                             </div>
                             <div className="flex gap-4">
                                 <button onClick={() => setStep(1)} className="flex-1 bg-slate-100 text-slate-600 p-4 rounded-xl font-bold">上一步</button>
-                                <button onClick={() => setStep(2.5)} className="flex-1 bg-orange-500 text-white p-4 rounded-xl font-bold shadow-lg">下一步：設定錢包</button>
+                                <button onClick={() => setStep(3)} className="flex-1 bg-orange-500 text-white p-4 rounded-xl font-bold shadow-lg">下一步</button>
                             </div>
                         </div>
                     )}
@@ -909,6 +869,15 @@
             const activeSplitCount = people.length - splitExcludes.length;
             const isAllSplit = activeSplitCount === people.length;
 
+            // 新增全選/全不選切換
+            const handleToggleAll = () => {
+                if (splitExcludes.length === 0) {
+                    setSplitExcludes(people.map(p => p.id)); // 全部排除 (全不選)
+                } else {
+                    setSplitExcludes([]); // 清空排除 (全選)
+                }
+            };
+
             return (
                 <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
                     <div className="bg-white w-full max-w-md rounded-t-3xl sm:rounded-3xl p-6 h-[90vh] sm:h-auto overflow-y-auto animate-slide-up">
@@ -922,7 +891,12 @@
                                 {payerMode === 'single' ? <select className="w-full p-3 border rounded-xl bg-white" value={mainPayer} onChange={e => setMainPayer(parseInt(e.target.value))}>{people.map(p => <option key={p.id} value={p.id}>{getPersonName(p.id)}</option>)}</select> : <div className="space-y-2">{people.map(p => <div key={p.id} className="flex justify-between items-center"><span className="text-sm">{getPersonName(p.id)}</span><input type="number" className="w-24 p-2 border rounded text-right" value={multiPayers[p.id]||''} onChange={e => setMultiPayers(prev=>({...prev, [p.id]:e.target.value}))} /></div>)}</div>}
                             </div>
                             <div>
-                                <label className="text-xs text-slate-500 font-bold mb-2 block">分攤給？ <span className="text-teal-600 font-normal">{isAllSplit ? '(預設：全員均攤)' : `(指定 ${activeSplitCount} 人)`}</span></label>
+                                <div className="flex justify-between items-center mb-2">
+                                    <label className="text-xs text-slate-500 font-bold block">分攤給？ <span className="text-teal-600 font-normal">{isAllSplit ? '(預設：全員均攤)' : `(指定 ${activeSplitCount} 人)`}</span></label>
+                                    <button onClick={handleToggleAll} className="text-xs bg-slate-100 hover:bg-slate-200 text-slate-600 px-2 py-1 rounded transition">
+                                        {splitExcludes.length === 0 ? '全不選' : '全選'}
+                                    </button>
+                                </div>
                                 <div className="flex flex-wrap gap-2">{people.map(p => (
                                     <button key={p.id} onClick={() => setSplitExcludes(prev => prev.includes(p.id) ? prev.filter(id=>id!==p.id) : [...prev, p.id])} className={`px-3 py-2 rounded-full text-sm border transition-all ${!splitExcludes.includes(p.id) ? 'bg-teal-100 text-teal-700 font-bold border-teal-200' : 'bg-white text-slate-300 border-slate-100'}`}>
                                         {getPersonName(p.id)} {!splitExcludes.includes(p.id) && <i className="fa-solid fa-check ml-1 text-xs"></i>}
