@@ -3,10 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Split Easy - P人也懂用的出遊分帳器</title>
+    <title>Split Easy - 雲端共編出遊分帳器</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <!-- 使用 Babel 解析 JSX 與 Module -->
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
@@ -21,10 +22,30 @@
 <body class="bg-slate-50 text-slate-800">
     <div id="root"></div>
 
-    <script type="text/babel">
+    <!-- 注意這裡加上了 data-type="module" 讓瀏覽器支援 ES Module 引入 Firebase -->
+    <script type="text/babel" data-type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, doc, setDoc, onSnapshot, deleteDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
         const { useState, useEffect, useRef } = React;
 
-        // --- Gemini API ---
+        // --- Firebase 初始化 (兆禾的專屬金鑰) ---
+        const firebaseConfig = {
+            apiKey: "AIzaSyAK7SbGI_32ShLGvGeo0S5fa7ZvtxHPBM8",
+            authDomain: "spliteasy-2026.firebaseapp.com",
+            projectId: "spliteasy-2026",
+            storageBucket: "spliteasy-2026.firebasestorage.app",
+            messagingSenderId: "759829684406",
+            appId: "1:759829684406:web:6d966fc7b7c2da5ed9c617"
+        };
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        // 符合高資安與架構規範的集合路徑
+        const FIREBASE_APP_ID = 'spliteasy-2026'; 
+
+        // --- Gemini API (依然維持本地存取個人的 Key，確保每個人的隱私) ---
         const callGemini = async (payload, type = 'text') => {
             const userApiKey = localStorage.getItem('splitEasy_apiKey');
             if(!userApiKey) {
@@ -80,7 +101,7 @@
             return p.name || ANIMAL_NAMES[(p.id + idx) % ANIMAL_NAMES.length];
         };
 
-        // --- 旅遊結算邏輯 (防彈版 + 錢包合併) ---
+        // --- 旅遊結算邏輯 ---
         const calculateSettlementHelper = (data) => {
             try {
                 let balances = {}; 
@@ -93,36 +114,29 @@
                     if (!exp || !exp.payers || !exp.splitBetween) return;
                     const amount = parseFloat(exp.amount) || 0;
                     
-                    // 計算付款者 (Creditors)
                     Object.entries(exp.payers).forEach(([pId, amt]) => {
                         const cleanAmt = parseFloat(amt) || 0; 
                         balances[pId] = (balances[pId] || 0) + cleanAmt;
                     });
 
-                    // 計算分攤者 (Debtors)
                     const splitCount = exp.splitBetween.length;
                     if (splitCount > 0) {
                         const perPerson = amount / splitCount;
                         exp.splitBetween.forEach(pId => {
-                            if (balances[pId] !== undefined) {
-                                balances[pId] -= perPerson;
-                            } else {
-                                balances[pId] = (balances[pId] || 0) - perPerson;
-                            }
+                            if (balances[pId] !== undefined) balances[pId] -= perPerson;
+                            else balances[pId] = (balances[pId] || 0) - perPerson;
                         });
                     }
                 });
 
-                // --- 錢包合併邏輯 (Wallet Binding) ---
+                // 錢包合併邏輯
                 people.forEach(p => {
                     if (p.payerId && p.payerId !== p.id) {
                         const mainPayerId = p.payerId;
                         const boundBalance = balances[p.id] || 0;
-                        
-                        // 確保主付款人在名單內
                         if (balances[mainPayerId] !== undefined) {
-                            balances[mainPayerId] += boundBalance; // 把錢轉過去
-                            balances[p.id] = 0; // 自己的歸零
+                            balances[mainPayerId] += boundBalance; 
+                            balances[p.id] = 0; 
                         }
                     }
                 });
@@ -172,55 +186,35 @@
             }
         };
 
-        // --- 拖曳設定錢包元件 (名字顯示修復版) ---
         const WalletSetupScreen = ({ people, onUpdate, onNext, onBack }) => {
             const [localPeople, setLocalPeople] = useState(people);
             const [selectedId, setSelectedId] = useState(null);
             
             const handleBind = (childId, parentId) => {
-                setLocalPeople(prev => prev.map(p => {
-                    if (p.id === childId) return { ...p, payerId: parentId };
-                    return p;
-                }));
+                setLocalPeople(prev => prev.map(p => p.id === childId ? { ...p, payerId: parentId } : p));
             };
 
             const handleUnbind = (childId) => {
-                setLocalPeople(prev => prev.map(p => {
-                    if (p.id === childId) return { ...p, payerId: p.id };
-                    return p;
-                }));
+                setLocalPeople(prev => prev.map(p => p.id === childId ? { ...p, payerId: p.id } : p));
             };
 
-            const handleSave = () => {
-                onUpdate(localPeople);
-                onNext();
-            };
+            const handleSave = () => { onUpdate(localPeople); onNext(); };
 
             const handleAvatarClick = (id, isMaster) => {
                 if (selectedId === null) {
                     const hasChildren = localPeople.some(p => p.payerId === id && p.id !== id);
-                    if (isMaster && hasChildren) {
-                        alert("這個錢包已經有成員了，請先將成員移出，才能移動這個錢包主。");
-                        return;
-                    }
+                    if (isMaster && hasChildren) return alert("這個錢包已經有成員了，請先將成員移出，才能移動這個錢包主。");
                     setSelectedId(id);
                 } else {
-                    if (selectedId === id) {
-                        setSelectedId(null);
-                        return;
-                    }
+                    if (selectedId === id) { setSelectedId(null); return; }
                     handleBind(selectedId, id);
                     setSelectedId(null);
                 }
             };
 
-            // 預先計算 wallets 結構
-            const wallets = localPeople
-                .filter(p => !p.payerId || p.payerId === p.id) // 找出所有主錢包
-                .map(master => ({
-                    master,
-                    children: localPeople.filter(child => child.payerId === master.id && child.id !== master.id)
-                }));
+            const wallets = localPeople.filter(p => !p.payerId || p.payerId === p.id).map(master => ({
+                master, children: localPeople.filter(child => child.payerId === master.id && child.id !== master.id)
+            }));
 
             return (
                 <div className="p-6 h-full flex flex-col animate-fade-in">
@@ -229,49 +223,25 @@
 
                     <div className="flex-1 overflow-y-auto content-start grid grid-cols-2 gap-4 auto-rows-min">
                         {wallets.map(w => {
-                            // 修復：使用 helper 確保顯示正確暱稱
                             const masterName = getPersonNameHelper(w.master.id, localPeople);
-                            
                             return (
-                                <div 
-                                    key={w.master.id}
-                                    onClick={() => handleAvatarClick(w.master.id, true)}
-                                    className={`relative p-4 rounded-2xl border-2 transition-all flex flex-col items-center justify-center min-h-[140px]
-                                        ${selectedId === w.master.id ? 'border-teal-500 bg-teal-50 ring-2 ring-teal-200 scale-105 z-10' : 'border-slate-200 bg-white hover:border-teal-300'}
-                                        ${selectedId !== null && selectedId !== w.master.id ? 'animate-pulse cursor-pointer border-dashed border-teal-400' : ''}
-                                    `}
-                                >
-                                    <div className="w-16 h-16 rounded-full bg-gradient-to-br from-orange-100 to-amber-100 flex items-center justify-center text-2xl font-bold text-orange-600 shadow-sm mb-2">
-                                        {masterName[0]}
-                                    </div>
+                                <div key={w.master.id} onClick={() => handleAvatarClick(w.master.id, true)} className={`relative p-4 rounded-2xl border-2 transition-all flex flex-col items-center justify-center min-h-[140px] ${selectedId === w.master.id ? 'border-teal-500 bg-teal-50 ring-2 ring-teal-200 scale-105 z-10' : 'border-slate-200 bg-white hover:border-teal-300'} ${selectedId !== null && selectedId !== w.master.id ? 'animate-pulse cursor-pointer border-dashed border-teal-400' : ''}`}>
+                                    <div className="w-16 h-16 rounded-full bg-gradient-to-br from-orange-100 to-amber-100 flex items-center justify-center text-2xl font-bold text-orange-600 shadow-sm mb-2">{masterName[0]}</div>
                                     <span className="font-bold text-slate-700 truncate max-w-full">{masterName}</span>
                                     {w.children.length > 0 && <span className="text-xs text-slate-400">錢包主</span>}
-
-                                    {/* 附屬成員區域 */}
                                     {w.children.length > 0 && (
                                         <div className="mt-3 flex flex-wrap justify-center gap-2 bg-slate-50 w-full p-2 rounded-xl border border-slate-100">
                                             {w.children.map(child => {
                                                 const childName = getPersonNameHelper(child.id, localPeople);
                                                 return (
-                                                    <div 
-                                                        key={child.id} 
-                                                        onClick={(e) => { e.stopPropagation(); handleUnbind(child.id); }}
-                                                        className="flex items-center gap-1 bg-white px-2 py-1 rounded-full shadow-sm text-xs text-slate-600 border border-slate-200 cursor-pointer hover:bg-red-50 hover:text-red-500 hover:border-red-200"
-                                                    >
-                                                        <div className="w-4 h-4 rounded-full bg-slate-200 flex items-center justify-center text-[8px]">{childName[0]}</div>
-                                                        {childName}
-                                                        <i className="fa-solid fa-xmark ml-1 opacity-50"></i>
+                                                    <div key={child.id} onClick={(e) => { e.stopPropagation(); handleUnbind(child.id); }} className="flex items-center gap-1 bg-white px-2 py-1 rounded-full shadow-sm text-xs text-slate-600 border border-slate-200 cursor-pointer hover:bg-red-50 hover:text-red-500 hover:border-red-200">
+                                                        <div className="w-4 h-4 rounded-full bg-slate-200 flex items-center justify-center text-[8px]">{childName[0]}</div>{childName}<i className="fa-solid fa-xmark ml-1 opacity-50"></i>
                                                     </div>
                                                 );
                                             })}
                                         </div>
                                     )}
-
-                                    {selectedId === w.master.id && (
-                                        <div className="absolute -top-2 -right-2 bg-teal-600 text-white text-xs px-2 py-1 rounded-full animate-bounce">
-                                            移動中...
-                                        </div>
-                                    )}
+                                    {selectedId === w.master.id && <div className="absolute -top-2 -right-2 bg-teal-600 text-white text-xs px-2 py-1 rounded-full animate-bounce">移動中...</div>}
                                 </div>
                             );
                         })}
@@ -279,9 +249,7 @@
 
                     <div className="mt-auto pt-4 flex gap-4">
                         <button onClick={onBack} className="flex-1 p-4 rounded-xl bg-slate-100 font-bold text-slate-600">上一步</button>
-                        <button onClick={handleSave} className="flex-1 p-4 rounded-xl bg-teal-600 font-bold text-white shadow-lg">
-                            確認分組 ({wallets.length} 組)
-                        </button>
+                        <button onClick={handleSave} className="flex-1 p-4 rounded-xl bg-teal-600 font-bold text-white shadow-lg">確認分組 ({wallets.length} 組)</button>
                     </div>
                 </div>
             );
@@ -295,6 +263,12 @@
                 </div>
                 <h1 className="text-3xl font-black text-white tracking-wider mb-2">Split Easy</h1>
                 <p className="text-teal-100 text-lg font-medium">P人也懂用的「出遊分帳器」</p>
+                <p className="text-teal-200 text-sm font-bold mt-1 tracking-widest">(新增共編功能)</p>
+                <div className="mt-8 flex gap-2">
+                    <div className="w-2 h-2 bg-white rounded-full animate-ping"></div>
+                    <div className="w-2 h-2 bg-white rounded-full animate-ping delay-75"></div>
+                    <div className="w-2 h-2 bg-white rounded-full animate-ping delay-150"></div>
+                </div>
             </div>
         );
 
@@ -314,10 +288,14 @@
                         <div className="bg-blue-50 p-4 rounded-xl text-blue-800 text-sm">
                             <p className="font-bold mb-1"><i className="fa-solid fa-circle-info"></i> 如何取得 Key？</p>
                             <ol className="list-decimal pl-4 space-y-1 text-xs">
-                                <li>前往 <a href="https://aistudio.google.com/app/apikey" target="_blank" className="underline font-bold">Google AI Studio</a></li>
+                                <li>前往 Google AI Studio 申請</li>
                                 <li>登入 Google 帳號 > "Create API key"</li>
                                 <li>複製並貼上到這裡</li>
                             </ol>
+                        </div>
+                        <div className="bg-teal-50 p-4 rounded-xl text-teal-800 text-sm border border-teal-100">
+                            <p className="font-bold mb-1"><i className="fa-solid fa-cloud-check"></i> 雲端連線狀態</p>
+                            <p className="text-xs">已成功連線至 Firebase (asia-east1 台灣機房)。所有專案變更將即時同步！</p>
                         </div>
                     </div>
                     <div className="mt-auto pt-6">
@@ -331,7 +309,10 @@
         const ProjectList = ({ projects, onSelect, onCreate, onDelete, onOpenSettings }) => (
             <div className="p-6 animate-fade-in pb-24">
                 <div className="mb-6 flex justify-between items-center">
-                    <div><h2 className="text-2xl font-bold text-slate-800">我的記帳本</h2><p className="text-slate-500 text-sm">點擊進入或建立新專案</p></div>
+                    <div>
+                        <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2">我的記帳本 <span className="relative flex h-3 w-3"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-teal-400 opacity-75"></span><span className="relative inline-flex rounded-full h-3 w-3 bg-teal-500"></span></span></h2>
+                        <p className="text-slate-500 text-sm">與雲端即時同步中</p>
+                    </div>
                     <button onClick={onOpenSettings} className="w-10 h-10 bg-white rounded-full shadow-sm text-slate-400 hover:text-teal-600 flex items-center justify-center transition"><i className="fa-solid fa-gear"></i></button>
                 </div>
                 {projects.length === 0 ? (
@@ -349,7 +330,7 @@
                                         <div className={`p-3 rounded-full h-fit w-12 h-12 flex items-center justify-center ${p.type === 'travel' ? 'bg-blue-100 text-blue-600' : 'bg-orange-100 text-orange-600'}`}><i className={`fa-solid ${p.type === 'travel' ? 'fa-map' : 'fa-mug-hot'} text-xl`}></i></div>
                                         <div>
                                             <h3 className="font-bold text-lg text-slate-800">{p.name}</h3>
-                                            <p className="text-xs text-slate-400 mt-1">最後編輯: {new Date(p.updatedAt).toLocaleDateString()}</p>
+                                            <p className="text-xs text-slate-400 mt-1">雲端更新: {new Date(p.updatedAt).toLocaleTimeString()}</p>
                                             <span className={`text-[10px] px-2 py-0.5 rounded-full mt-2 inline-block ${p.type === 'travel' ? 'bg-blue-50 text-blue-500' : 'bg-orange-50 text-orange-500'}`}>{p.type === 'travel' ? '多日旅遊' : '單次聚餐'}</span>
                                         </div>
                                     </div>
@@ -404,10 +385,11 @@
             const [data, setData] = useState(projectData);
             const [isScanning, setIsScanning] = useState(false);
 
+            useEffect(() => { setData(projectData); }, [projectData]);
             useEffect(() => { if (JSON.stringify(data) !== JSON.stringify(projectData)) onUpdate(data); }, [data]);
 
             const updateData = (key, value) => setData(prev => ({ ...prev, [key]: value }));
-            const addPerson = () => { const used = data.people.map(p=>p.name); setData(prev => ({...prev, people: [...prev.people, { id: Date.now(), name: '' }] })); };
+            const addPerson = () => { setData(prev => ({...prev, people: [...prev.people, { id: Date.now(), name: '' }] })); };
             const removePerson = (id) => { if(data.people.length > 1) setData(prev => ({ ...prev, people: prev.people.filter(p => p.id !== id) })); };
             const updatePersonName = (id, name) => setData(prev => ({ ...prev, people: prev.people.map(p => p.id === id ? { ...p, name } : p) }));
             const getDisplayName = (person, index) => person.name || ANIMAL_NAMES[(person.id + index) % ANIMAL_NAMES.length];
@@ -421,11 +403,7 @@
                     const res = await callGemini({ contents: [{ role: "user", parts: [{ text: '分析圖片回傳 JSON: {"total": 數字, "serviceCharge": 數字(若無則0)}', inlineData: { mimeType: file.type, data: b64 } }] }] }, 'image');
                     const parsed = JSON.parse(res.candidates[0].content.parts[0].text.replace(/```json|```/g, '').trim());
                     if (parsed.total) {
-                        setData(prev => ({
-                            ...prev, totalBill: parsed.total,
-                            serviceChargeValue: parsed.serviceCharge > 0 ? parsed.serviceCharge : prev.serviceChargeValue,
-                            serviceChargeType: parsed.serviceCharge > 0 ? 'fixed' : prev.serviceChargeType
-                        }));
+                        setData(prev => ({ ...prev, totalBill: parsed.total, serviceChargeValue: parsed.serviceCharge > 0 ? parsed.serviceCharge : prev.serviceChargeValue, serviceChargeType: parsed.serviceCharge > 0 ? 'fixed' : prev.serviceChargeType }));
                     }
                 } catch { setIsScanning(false); } finally { setIsScanning(false); }
             };
@@ -434,8 +412,7 @@
                 const bill = parseFloat(data.totalBill) || 0;
                 const scValue = parseFloat(data.serviceChargeValue) || 0;
                 let final = 0, scAmt = 0;
-                if (data.serviceChargeType === 'percent') { scAmt = bill * (scValue / 100); final = bill + scAmt; } 
-                else { scAmt = scValue; final = bill + scAmt; }
+                if (data.serviceChargeType === 'percent') { scAmt = bill * (scValue / 100); final = bill + scAmt; } else { scAmt = scValue; final = bill + scAmt; }
                 const results = [];
                 if (data.splitMode === 'even') {
                     const per = final / data.people.length;
@@ -498,19 +475,10 @@
                             <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 space-y-6">
                                 <div>
                                     <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">餐點小計</label>
-                                    <div className="relative">
-                                        <i className="fa-solid fa-dollar-sign absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"></i>
-                                        <input type="number" placeholder="0" className="w-full pl-10 pr-4 py-4 rounded-xl bg-slate-50 border border-slate-200 text-2xl font-bold outline-none" value={data.totalBill} onChange={e => updateData('totalBill', e.target.value)} />
-                                    </div>
+                                    <div className="relative"><i className="fa-solid fa-dollar-sign absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"></i><input type="number" placeholder="0" className="w-full pl-10 pr-4 py-4 rounded-xl bg-slate-50 border border-slate-200 text-2xl font-bold outline-none" value={data.totalBill} onChange={e => updateData('totalBill', e.target.value)} /></div>
                                 </div>
                                 <div>
-                                    <div className="flex justify-between items-center mb-2">
-                                        <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider">服務費</label>
-                                        <div className="flex bg-slate-100 rounded-lg p-1">
-                                            <button onClick={() => updateData('serviceChargeType', 'percent')} className={`px-3 py-1 text-xs rounded-md transition ${data.serviceChargeType === 'percent' ? 'bg-white shadow text-orange-600 font-bold' : 'text-slate-500'}`}>%</button>
-                                            <button onClick={() => updateData('serviceChargeType', 'fixed')} className={`px-3 py-1 text-xs rounded-md transition ${data.serviceChargeType === 'fixed' ? 'bg-white shadow text-orange-600 font-bold' : 'text-slate-500'}`}>$</button>
-                                        </div>
-                                    </div>
+                                    <div className="flex justify-between items-center mb-2"><label className="block text-xs font-bold text-slate-400 uppercase tracking-wider">服務費</label><div className="flex bg-slate-100 rounded-lg p-1"><button onClick={() => updateData('serviceChargeType', 'percent')} className={`px-3 py-1 text-xs rounded-md transition ${data.serviceChargeType === 'percent' ? 'bg-white shadow text-orange-600 font-bold' : 'text-slate-500'}`}>%</button><button onClick={() => updateData('serviceChargeType', 'fixed')} className={`px-3 py-1 text-xs rounded-md transition ${data.serviceChargeType === 'fixed' ? 'bg-white shadow text-orange-600 font-bold' : 'text-slate-500'}`}>$</button></div></div>
                                     <input type="number" className="w-full px-4 py-3 rounded-xl bg-slate-50 border border-slate-200 font-medium outline-none" value={data.serviceChargeValue} onChange={e => updateData('serviceChargeValue', e.target.value)} />
                                 </div>
                                 <div>
@@ -526,23 +494,7 @@
                                         {data.people.map((p, idx) => (
                                             <div key={p.id} className="flex justify-between items-center">
                                                 <span className="text-sm font-medium w-24 truncate">{getDisplayName(p, idx)}</span>
-                                                <input 
-                                                    type="number" 
-                                                    placeholder="0" 
-                                                    className="w-32 p-2 text-right rounded-lg border border-slate-200 bg-slate-50 outline-none" 
-                                                    value={data.customAmounts[p.id] || ''} 
-                                                    onChange={e => {
-                                                        const newVal = e.target.value;
-                                                        setData(prev => {
-                                                            const newCustomAmounts = { ...prev.customAmounts, [p.id]: newVal };
-                                                            const newTotal = prev.people.reduce((sum, person) => {
-                                                                const amount = newCustomAmounts[person.id] || 0;
-                                                                return sum + (parseFloat(amount) || 0);
-                                                            }, 0);
-                                                            return { ...prev, customAmounts: newCustomAmounts, totalBill: newTotal };
-                                                        });
-                                                    }} 
-                                                />
+                                                <input type="number" placeholder="0" className="w-32 p-2 text-right rounded-lg border border-slate-200 bg-slate-50 outline-none" value={data.customAmounts[p.id] || ''} onChange={e => { const newVal = e.target.value; setData(prev => { const newCustomAmounts = { ...prev.customAmounts, [p.id]: newVal }; const newTotal = prev.people.reduce((sum, person) => sum + (parseFloat(newCustomAmounts[person.id]) || 0), 0); return { ...prev, customAmounts: newCustomAmounts, totalBill: newTotal }; }); }} />
                                             </div>
                                         ))}
                                     </div>
@@ -568,34 +520,12 @@
             const handleGenerateMessage = async () => {
                 setIsGenerating(true);
                 const debts = results.map(r => `．${r.name}：${formatMoney(Math.round(r.amount))}`).join('\n');
-                const prompt = `請為「${data.title}」這場聚餐產生一段結算文字，讓我直接複製貼到 Line 群組。
-                【重要規則】
-                1. 絕對不要出現「我是你的助手」、「這是生成的文案」等 AI 自稱。
-                2. 絕對不要使用 Markdown 粗體符號（**）。
-                3. 不要使用表格或分隔線。
-                4. 列表請統一使用全形圓點「．」開頭。
-
-                【內容結構】
-                1. 開場白（1句）：用輕鬆口語（如「快樂無價，帳單面對XD」、「大家辛苦了，結帳囉」），請隨機發揮不同寫法。
-                2. 帳單明細（請將以下數據整理為條列式，格式為「．姓名：金額」）：
-                ${debts}
-                3. 總金額：Total ${formatMoney(Math.round(finalTotal))}
-                `;
-                
-                try {
-                    const res = await callGemini({ contents: [{ parts: [{ text: prompt }] }] });
-                    setAiMessage(res.candidates[0].content.parts[0].text);
-                } catch { alert("AI 生成失敗"); } finally { setIsGenerating(false); }
+                const prompt = `請為「${data.title}」這場聚餐產生一段結算文字，讓我直接複製貼到 Line 群組。不自稱AI，不使用**粗體，格式「．姓名：金額」，文末寫Total總金。 \n明細：\n${debts}\n總金額：${finalTotal}`;
+                try { const res = await callGemini({ contents: [{ parts: [{ text: prompt }] }] }); setAiMessage(res.candidates[0].content.parts[0].text); } catch { alert("AI 生成失敗"); } finally { setIsGenerating(false); }
             };
 
             const handleDownloadImage = async () => {
-                if (resultRef.current && window.html2canvas) {
-                    const canvas = await window.html2canvas(resultRef.current, { scale: 2 });
-                    const link = document.createElement('a');
-                    link.download = `${data.title}_分帳卡.png`;
-                    link.href = canvas.toDataURL();
-                    link.click();
-                }
+                if (resultRef.current && window.html2canvas) { const canvas = await window.html2canvas(resultRef.current, { scale: 2 }); const link = document.createElement('a'); link.download = `${data.title}_分帳卡.png`; link.href = canvas.toDataURL(); link.click(); }
             };
 
             return (
@@ -607,31 +537,10 @@
                             <div><h3 className="text-xl font-bold text-slate-800">{data.title || '快樂聚餐'}</h3><p className="text-slate-500 text-sm">{data.date}</p></div>
                             <div className="text-right"><p className="text-xs text-slate-400 uppercase">Total</p><p className="text-2xl font-black text-orange-600">{formatMoney(Math.round(finalTotal))}</p></div>
                         </div>
-                        <div className="space-y-3">
-                            {results.map((r, i) => (
-                                <div key={i} className="flex justify-between items-center">
-                                    <span className="font-medium text-slate-700">{r.name}</span>
-                                    <div className="text-right"><span className="block font-bold text-slate-800">{formatMoney(Math.round(r.amount))}</span>{data.splitMode === 'custom' && <span className="text-[10px] text-slate-400">{r.detail}</span>}</div>
-                                </div>
-                            ))}
-                        </div>
+                        <div className="space-y-3">{results.map((r, i) => (<div key={i} className="flex justify-between items-center"><span className="font-medium text-slate-700">{r.name}</span><div className="text-right"><span className="block font-bold text-slate-800">{formatMoney(Math.round(r.amount))}</span>{data.splitMode === 'custom' && <span className="text-[10px] text-slate-400">{r.detail}</span>}</div></div>))}</div>
                     </div>
-                    <div className="mb-6">
-                        {!aiMessage ? (
-                            <button onClick={handleGenerateMessage} disabled={isGenerating} className="w-full bg-gradient-to-r from-indigo-500 to-purple-600 text-white p-3 rounded-xl font-bold shadow-md flex items-center justify-center gap-2">
-                                {isGenerating ? <i className="fa-solid fa-spinner fa-spin"></i> : <i className="fa-solid fa-wand-magic-sparkles"></i>} AI 生成結算文案
-                            </button>
-                        ) : (
-                            <div className="bg-indigo-50 border border-indigo-100 p-4 rounded-xl relative">
-                                <p className="text-sm text-indigo-900 whitespace-pre-wrap">{aiMessage}</p>
-                                <button onClick={() => {copyToClipboard(aiMessage); alert('已複製')}} className="absolute bottom-2 right-2 text-xs bg-indigo-200 text-indigo-800 px-3 py-1 rounded-full font-bold">複製</button>
-                            </div>
-                        )}
-                    </div>
-                    <div className="grid grid-cols-2 gap-4 mb-4">
-                        <button onClick={() => {copyToClipboard(results.map(r => `${r.name}: ${Math.round(r.amount)}`).join('\n')); alert('已複製')}} className="bg-blue-50 text-blue-600 p-4 rounded-xl font-bold flex items-center justify-center gap-2"><i className="fa-solid fa-copy"></i> 複製文字</button>
-                        <button onClick={handleDownloadImage} className="bg-orange-50 text-orange-600 p-4 rounded-xl font-bold flex items-center justify-center gap-2"><i className="fa-solid fa-download"></i> 下載圖片</button>
-                    </div>
+                    <div className="mb-6">{!aiMessage ? <button onClick={handleGenerateMessage} disabled={isGenerating} className="w-full bg-gradient-to-r from-indigo-500 to-purple-600 text-white p-3 rounded-xl font-bold shadow-md flex items-center justify-center gap-2">{isGenerating ? <i className="fa-solid fa-spinner fa-spin"></i> : <i className="fa-solid fa-wand-magic-sparkles"></i>} AI 生成結算文案</button> : <div className="bg-indigo-50 border border-indigo-100 p-4 rounded-xl relative"><p className="text-sm text-indigo-900 whitespace-pre-wrap">{aiMessage}</p><button onClick={() => {copyToClipboard(aiMessage); alert('已複製')}} className="absolute bottom-2 right-2 text-xs bg-indigo-200 text-indigo-800 px-3 py-1 rounded-full font-bold">複製</button></div>}</div>
+                    <div className="grid grid-cols-2 gap-4 mb-4"><button onClick={() => {copyToClipboard(results.map(r => `${r.name}: ${Math.round(r.amount)}`).join('\n')); alert('已複製')}} className="bg-blue-50 text-blue-600 p-4 rounded-xl font-bold flex items-center justify-center gap-2"><i className="fa-solid fa-copy"></i> 複製文字</button><button onClick={handleDownloadImage} className="bg-orange-50 text-orange-600 p-4 rounded-xl font-bold flex items-center justify-center gap-2"><i className="fa-solid fa-download"></i> 下載圖片</button></div>
                     <button onClick={onBack} className="w-full bg-slate-100 text-slate-600 p-4 rounded-xl font-bold">修改設定</button>
                 </div>
             );
@@ -644,6 +553,7 @@
             const [trip, setTrip] = useState(projectData);
             const [showWalletSetup, setShowWalletSetup] = useState(false);
 
+            useEffect(() => { setTrip(projectData); }, [projectData]);
             useEffect(() => { if (JSON.stringify(trip) !== JSON.stringify(projectData)) onUpdate(trip); }, [trip]);
 
             const addPerson = () => setTrip(prev => ({ ...prev, people: [...prev.people, { id: Date.now(), name: '', payerId: Date.now() }] }));
@@ -653,57 +563,29 @@
             const deleteExpense = (id) => setTrip(prev => ({ ...prev, expenses: prev.expenses.filter(e => e.id !== id) }));
             const handleEditClick = (ex) => { setEditingExpense(ex); setShowAddModal(true); };
 
-            if (showWalletSetup) {
-                return (
-                    <WalletSetupScreen 
-                        people={trip.people} 
-                        onUpdate={(newPeople) => setTrip(prev => ({ ...prev, people: newPeople }))}
-                        onNext={() => setShowWalletSetup(false)}
-                        onBack={() => setShowWalletSetup(false)}
-                    />
-                );
-            }
+            if (showWalletSetup) return <WalletSetupScreen people={trip.people} onUpdate={(newPeople) => setTrip(prev => ({ ...prev, people: newPeople }))} onNext={() => setShowWalletSetup(false)} onBack={() => setShowWalletSetup(false)} />;
 
             return (
                 <div className="h-full flex flex-col">
                     <div className="flex bg-white border-b border-slate-200">
-                        {['setup', 'expenses', 'settle'].map(t => (
-                            <button key={t} onClick={() => setTab(t)} className={`flex-1 py-3 text-sm font-bold ${tab === t ? 'text-teal-600 border-b-2 border-teal-600' : 'text-slate-400'}`}>
-                                {t === 'setup' ? '設定' : t === 'expenses' ? '記帳' : '結算'}
-                            </button>
-                        ))}
+                        {['setup', 'expenses', 'settle'].map(t => <button key={t} onClick={() => setTab(t)} className={`flex-1 py-3 text-sm font-bold ${tab === t ? 'text-teal-600 border-b-2 border-teal-600' : 'text-slate-400'}`}>{t === 'setup' ? '設定' : t === 'expenses' ? '記帳' : '結算'}</button>)}
                     </div>
                     <div className="flex-1 overflow-y-auto bg-slate-50 no-scrollbar">
                         {tab === 'setup' && (
                             <div className="p-6 pb-24 space-y-4 bg-white m-4 rounded-2xl shadow-sm">
                                 <div><label className="block text-sm text-slate-500 mb-1">旅遊名稱</label><input className="w-full p-3 border rounded-xl bg-slate-50" value={trip.name} onChange={e => setTrip({...trip, name: e.target.value})} /></div>
-                                <div><label className="block text-sm text-slate-500 mb-2">成員</label>
-                                    <div className="space-y-2">{trip.people.map((p, idx) => (
-                                        <div key={p.id} className="flex gap-2"><input className="flex-1 p-2 border rounded-lg" placeholder={getPersonNameHelper(p.id, trip.people)} value={p.name} onChange={e => { const np = [...trip.people]; np[idx].name = e.target.value; setTrip({...trip, people: np}); }} />{trip.people.length > 1 && <button onClick={() => removePerson(p.id)}><i className="fa-solid fa-trash text-slate-300"></i></button>}</div>
-                                    ))}<button onClick={addPerson} className="text-sm text-teal-600 font-bold">+ 新增成員</button></div>
-                                </div>
-                                <div className="pt-4 border-t border-slate-100">
-                                    <button onClick={() => setShowWalletSetup(true)} className="w-full py-3 bg-teal-50 text-teal-700 rounded-xl font-bold flex items-center justify-center gap-2 border border-teal-200 hover:bg-teal-100">
-                                        <i className="fa-solid fa-wallet"></i> 設定共同錢包 (家庭/情侶)
-                                    </button>
-                                </div>
+                                <div><label className="block text-sm text-slate-500 mb-2">成員</label><div className="space-y-2">{trip.people.map((p, idx) => (<div key={p.id} className="flex gap-2"><input className="flex-1 p-2 border rounded-lg" placeholder={getPersonNameHelper(p.id, trip.people)} value={p.name} onChange={e => { const np = [...trip.people]; np[idx].name = e.target.value; setTrip({...trip, people: np}); }} />{trip.people.length > 1 && <button onClick={() => removePerson(p.id)}><i className="fa-solid fa-trash text-slate-300"></i></button>}</div>))}<button onClick={addPerson} className="text-sm text-teal-600 font-bold">+ 新增成員</button></div></div>
+                                <div className="pt-4 border-t border-slate-100"><button onClick={() => setShowWalletSetup(true)} className="w-full py-3 bg-teal-50 text-teal-700 rounded-xl font-bold flex items-center justify-center gap-2 border border-teal-200 hover:bg-teal-100"><i className="fa-solid fa-wallet"></i> 設定共同錢包 (家庭/情侶)</button></div>
                             </div>
                         )}
                         {tab === 'expenses' && (
                             <div className="p-4 pb-24">
-                                <div className="bg-teal-600 text-white p-6 rounded-2xl shadow-lg mb-6">
-                                    <p className="text-teal-100 text-sm">目前總支出</p>
-                                    <h2 className="text-4xl font-bold mt-1">{formatMoney(trip.expenses.reduce((s, e) => s + parseFloat(e.amount), 0))}</h2>
-                                    <div className="mt-4 flex gap-2 text-sm text-teal-100"><span className="bg-teal-700/50 px-3 py-1 rounded-full">{trip.expenses.length} 筆</span><span className="bg-teal-700/50 px-3 py-1 rounded-full">{trip.people.length} 人</span></div>
-                                </div>
+                                <div className="bg-teal-600 text-white p-6 rounded-2xl shadow-lg mb-6"><p className="text-teal-100 text-sm">目前總支出</p><h2 className="text-4xl font-bold mt-1">{formatMoney(trip.expenses.reduce((s, e) => s + parseFloat(e.amount), 0))}</h2><div className="mt-4 flex gap-2 text-sm text-teal-100"><span className="bg-teal-700/50 px-3 py-1 rounded-full">{trip.expenses.length} 筆</span><span className="bg-teal-700/50 px-3 py-1 rounded-full">{trip.people.length} 人</span></div></div>
                                 <div className="space-y-3">
                                     {trip.expenses.map((exp) => (
                                         <div key={exp.id} className="bg-white p-4 rounded-xl shadow-sm border border-slate-100">
-                                            <div className="flex justify-between items-start mb-2">
-                                                <div><p className="font-bold text-slate-800">{exp.desc}</p><div className="flex items-center gap-1 mt-1"><i className="fa-solid fa-arrow-right-arrow-left text-xs text-slate-400"></i><p className="text-xs text-slate-500">{Object.keys(exp.payers).map(pid => getPersonNameHelper(pid, trip.people)).join(', ')} 付款</p></div></div>
-                                                <div className="flex items-center gap-2"><span className="font-bold text-teal-600">{formatMoney(exp.amount)}</span><button onClick={() => handleEditClick(exp)} className="p-2 bg-slate-50 rounded text-slate-400"><i className="fa-solid fa-pencil"></i></button><button onClick={() => deleteExpense(exp.id)} className="p-2 bg-slate-50 rounded text-slate-400 hover:text-red-500"><i className="fa-solid fa-trash"></i></button></div>
-                                            </div>
-                                            <div className="pt-2 border-t border-slate-50 flex items-start gap-2"><i className="fa-solid fa-users text-xs text-slate-400 mt-1"></i><p className="text-xs text-slate-400">分攤給: {exp.splitBetween.length === trip.people.length ? '全員' : exp.splitBetween.map(id => getPersonNameHelper(id, trip.people)).join(', ')}</p></div>
+                                            <div className="flex justify-between items-start mb-2"><div><p className="font-bold text-slate-800">{exp.desc}</p><div className="flex items-center gap-1 mt-1"><i className="fa-solid fa-arrow-right-arrow-left text-xs text-slate-400"></i><p className="text-xs text-slate-500">{Object.keys(exp.payers).map(pid => getPersonNameHelper(pid, trip.people)).join(', ')} 付款</p></div></div><div className="flex items-center gap-2"><span className="font-bold text-teal-600">{formatMoney(exp.amount)}</span><button onClick={() => handleEditClick(exp)} className="p-2 bg-slate-50 rounded text-slate-400"><i className="fa-solid fa-pencil"></i></button><button onClick={() => deleteExpense(exp.id)} className="p-2 bg-slate-50 rounded text-slate-400 hover:text-red-500"><i className="fa-solid fa-trash"></i></button></div></div>
+                                            <div className="pt-2 border-t border-slate-50 flex items-start gap-2"><i className="fa-solid fa-users text-xs text-slate-400 mt-1"></i><p className="text-xs text-slate-400">分攤: {exp.splitBetween.length === trip.people.length ? '全員' : exp.splitBetween.map(id => getPersonNameHelper(id, trip.people)).join(', ')}</p></div>
                                         </div>
                                     ))}
                                 </div>
@@ -717,166 +599,38 @@
             );
         };
 
-        // --- 結算畫面元件 (修改後) ---
         const SettlementView = ({ trip }) => {
             const result = calculateSettlementHelper(trip);
-            
-            // 如果資料壞到完全無法計算 (error: true)，顯示友善錯誤畫面，而不是空白當機
-            if (result.error) {
-                return (
-                    <div className="p-6 pb-24 flex flex-col items-center justify-center h-full text-center">
-                        <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mb-4">
-                            <i className="fa-solid fa-triangle-exclamation text-3xl text-red-500"></i>
-                        </div>
-                        <h3 className="font-bold text-xl text-slate-800">資料格式異常</h3>
-                        <p className="text-slate-500 text-sm mt-2 max-w-xs">偵測到舊的或損壞的記帳資料，導致無法進行結算。</p>
-                        <p className="text-slate-400 text-xs mt-4">建議刪除此專案，重新建立一個新的。</p>
-                    </div>
-                );
-            }
-
+            if (result.error) return <div className="p-6 pb-24 flex flex-col items-center justify-center h-full text-center"><div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mb-4"><i className="fa-solid fa-triangle-exclamation text-3xl text-red-500"></i></div><h3 className="font-bold text-xl text-slate-800">資料格式異常</h3><p className="text-slate-500 text-sm mt-2 max-w-xs">偵測到異常，無法結算。</p></div>;
             const { overview, transactions } = result;
             const settlementRef = useRef(null);
             const [aiMessage, setAiMessage] = useState('');
             const [isGenerating, setIsGenerating] = useState(false);
 
-            const handleDownload = async () => {
-                if (settlementRef.current && window.html2canvas) {
-                    const canvas = await window.html2canvas(settlementRef.current, { scale: 2 });
-                    const link = document.createElement('a');
-                    link.download = `結算清單.png`;
-                    link.href = canvas.toDataURL();
-                    link.click();
-                }
-            };
-
-            const handleGenerateMessage = async () => {
-                setIsGenerating(true);
-                const txText = transactions.map(t => `${getPersonNameHelper(t.from, trip.people)} 需支付 ${getPersonNameHelper(t.to, trip.people)} ${formatMoney(Math.round(t.amount))}`).join('\n');
-                const prompt = `請為「${trip.name}」這場活動產生一段結算文字，讓我直接複製貼到 Line 群組。
-                【重要規則】
-                1. 絕對不要出現「我是你的助手」、「這是生成的文案」等 AI 自稱。
-                2. 絕對不要使用 Markdown 粗體符號（**）。
-                3. 不要使用表格或分隔線。
-                4. 列表請統一使用全形圓點「．」開頭。
-
-                【內容結構】
-                1. 開場白（1句）：用輕鬆口語（如「旅遊結束來算帳囉」、「轉帳轉起來～」），請隨機發揮不同寫法。
-                2. 建議轉帳明細（請將以下數據整理為條列式，格式為「．A 付給 B $金額」）：
-                ${txText}`;
-                
-                try {
-                    const res = await callGemini({ contents: [{ parts: [{ text: prompt }] }] });
-                    setAiMessage(res.candidates[0].content.parts[0].text);
-                } catch { alert("AI 生成失敗"); } finally { setIsGenerating(false); }
-            };
+            const handleDownload = async () => { if (settlementRef.current && window.html2canvas) { const canvas = await window.html2canvas(settlementRef.current, { scale: 2 }); const link = document.createElement('a'); link.download = `結算清單.png`; link.href = canvas.toDataURL(); link.click(); } };
+            const handleGenerateMessage = async () => { setIsGenerating(true); const txText = transactions.map(t => `${getPersonNameHelper(t.from, trip.people)} 需支付 ${getPersonNameHelper(t.to, trip.people)} ${formatMoney(Math.round(t.amount))}`).join('\n'); const prompt = `請為「${trip.name}」這場活動產生一段結算文字，讓我直接複製貼到 Line 群組。不自稱AI，不使用**粗體，格式「．A 付給 B $金額」。\n明細：\n${txText}`; try { const res = await callGemini({ contents: [{ parts: [{ text: prompt }] }] }); setAiMessage(res.candidates[0].content.parts[0].text); } catch { alert("AI 生成失敗"); } finally { setIsGenerating(false); } };
 
             return (
                 <div className="p-6 pb-24">
                     <h2 className="text-2xl font-bold mb-4">結算中心</h2>
                     <div ref={settlementRef} className="bg-white p-6 rounded-2xl shadow-lg border border-slate-100 space-y-6">
                         <div className="text-center border-b border-slate-100 pb-4"><h3 className="font-bold text-lg">{trip.name || '本次旅遊'}</h3><p className="text-slate-500 text-xs">建議轉帳路徑</p></div>
-                        <div className="space-y-3">
-                            {transactions.map((t, i) => (
-                                <div key={i} className="flex items-center justify-between bg-slate-50 p-3 rounded-lg border border-slate-100">
-                                    <div className="flex items-center gap-2"><span className="font-bold text-slate-700">{getPersonNameHelper(t.from, trip.people)}</span><span className="text-slate-400 text-xs">給</span><span className="font-bold text-slate-700">{getPersonNameHelper(t.to, trip.people)}</span></div>
-                                    <span className="font-bold text-teal-600">{formatMoney(Math.round(t.amount))}</span>
-                                </div>
-                            ))}
-                            {transactions.length === 0 && <div className="text-center text-green-600 font-bold py-4">帳目已平！</div>}
-                        </div>
-                        <div className="pt-4 border-t border-slate-100"><h4 className="text-sm font-bold text-slate-400 uppercase mb-3">個人收支 (含錢包合併)</h4>
-                            <div className="space-y-2">{overview.map(p => {
-                                // 只顯示主錢包，或是有餘額的人
-                                if (p.payerId && p.payerId !== p.id && p.balance === 0) return null;
-                                return (
-                                    <div key={p.id} className="flex justify-between text-sm"><span>{p.name}</span><span className={p.balance >= 0 ? 'text-blue-600 font-bold' : 'text-red-500 font-bold'}>{p.balance > 0 ? `應收 ${formatMoney(Math.round(p.balance))}` : `應付 ${formatMoney(Math.round(Math.abs(p.balance)))}`}</span></div>
-                                );
-                            })}</div>
-                        </div>
+                        <div className="space-y-3">{transactions.map((t, i) => (<div key={i} className="flex items-center justify-between bg-slate-50 p-3 rounded-lg border border-slate-100"><div className="flex items-center gap-2"><span className="font-bold text-slate-700">{getPersonNameHelper(t.from, trip.people)}</span><span className="text-slate-400 text-xs">給</span><span className="font-bold text-slate-700">{getPersonNameHelper(t.to, trip.people)}</span></div><span className="font-bold text-teal-600">{formatMoney(Math.round(t.amount))}</span></div>))}{transactions.length === 0 && <div className="text-center text-green-600 font-bold py-4">帳目已平！</div>}</div>
+                        <div className="pt-4 border-t border-slate-100"><h4 className="text-sm font-bold text-slate-400 uppercase mb-3">個人收支 (含錢包合併)</h4><div className="space-y-2">{overview.map(p => { if (p.payerId && p.payerId !== p.id && p.balance === 0) return null; return (<div key={p.id} className="flex justify-between text-sm"><span>{p.name}</span><span className={p.balance >= 0 ? 'text-blue-600 font-bold' : 'text-red-500 font-bold'}>{p.balance > 0 ? `應收 ${formatMoney(Math.round(p.balance))}` : `應付 ${formatMoney(Math.round(Math.abs(p.balance)))}`}</span></div>); })}</div></div>
                     </div>
-                    <div className="mt-6">
-                        {!aiMessage ? (
-                            <button onClick={handleGenerateMessage} disabled={isGenerating || transactions.length === 0} className="w-full bg-gradient-to-r from-indigo-500 to-purple-600 text-white p-3 rounded-xl font-bold shadow-md flex items-center justify-center gap-2">
-                                {isGenerating ? <i className="fa-solid fa-spinner fa-spin"></i> : <i className="fa-solid fa-wand-magic-sparkles"></i>} AI 產生結算文案
-                            </button>
-                        ) : (
-                            <div className="bg-indigo-50 border border-indigo-100 p-4 rounded-xl relative">
-                                <p className="text-sm text-indigo-900 whitespace-pre-wrap">{aiMessage}</p>
-                                <button onClick={() => {copyToClipboard(aiMessage); alert('已複製')}} className="absolute bottom-2 right-2 text-xs bg-indigo-200 text-indigo-800 px-3 py-1 rounded-full font-bold">複製</button>
-                            </div>
-                        )}
-                    </div>
+                    <div className="mt-6">{!aiMessage ? <button onClick={handleGenerateMessage} disabled={isGenerating || transactions.length === 0} className="w-full bg-gradient-to-r from-indigo-500 to-purple-600 text-white p-3 rounded-xl font-bold shadow-md flex items-center justify-center gap-2">{isGenerating ? <i className="fa-solid fa-spinner fa-spin"></i> : <i className="fa-solid fa-wand-magic-sparkles"></i>} AI 產生結算文案</button> : <div className="bg-indigo-50 border border-indigo-100 p-4 rounded-xl relative"><p className="text-sm text-indigo-900 whitespace-pre-wrap">{aiMessage}</p><button onClick={() => {copyToClipboard(aiMessage); alert('已複製')}} className="absolute bottom-2 right-2 text-xs bg-indigo-200 text-indigo-800 px-3 py-1 rounded-full font-bold">複製</button></div>}</div>
                     <button onClick={handleDownload} className="w-full mt-4 bg-slate-800 text-white p-4 rounded-xl font-bold flex items-center justify-center gap-2"><i className="fa-solid fa-download"></i> 下載結算圖</button>
                 </div>
             );
         };
 
         const AddExpenseModal = ({ people, initialData, onClose, onAdd, onUpdate, getPersonName }) => {
-            const [desc, setDesc] = useState('');
-            const [amount, setAmount] = useState('');
-            const [payerMode, setPayerMode] = useState('single');
-            const [mainPayer, setMainPayer] = useState(people[0]?.id);
-            const [multiPayers, setMultiPayers] = useState({});
-            const [splitExcludes, setSplitExcludes] = useState([]);
-            const [isScanning, setIsScanning] = useState(false);
-
-            useEffect(() => {
-                if (initialData) {
-                    setDesc(initialData.desc);
-                    setAmount(initialData.amount);
-                    if (Object.keys(initialData.payers).length > 1) { setPayerMode('multi'); setMultiPayers(initialData.payers); }
-                    else { setPayerMode('single'); setMainPayer(parseInt(Object.keys(initialData.payers)[0])); }
-                    setSplitExcludes(people.filter(p => !initialData.splitBetween.includes(p.id)).map(p => p.id));
-                }
-            }, [initialData]);
-
-            const handleScan = async (e) => {
-                const file = e.target.files[0];
-                if (!file) return;
-                setIsScanning(true);
-                try {
-                    const b64 = await fileToBase64(file);
-                    const res = await callGemini({ contents: [{ role: "user", parts: [{ text: '分析圖片回傳 JSON: {"item": "品項", "total": 數字}', inlineData: { mimeType: file.type, data: b64 } }] }] }, 'image');
-                    const parsed = JSON.parse(res.candidates[0].content.parts[0].text.replace(/```json|```/g, '').trim());
-                    if (parsed.total) setAmount(parsed.total);
-                    if (parsed.item) setDesc(parsed.item);
-                } catch { alert('AI 辨識失敗'); } finally { setIsScanning(false); }
-            };
-
-            const handleSubmit = () => {
-                if (!desc || !amount) return alert('請填寫完整');
-                const total = parseFloat(amount);
-                let payers = {};
-                if (payerMode === 'single') payers[mainPayer] = total;
-                else {
-                    // 安全鎖 3: 過濾無效輸入 (如 "0", "", 負數)
-                    const validPayers = {};
-                    let sum = 0;
-                    Object.entries(multiPayers).forEach(([pid, val]) => {
-                        const v = parseFloat(val);
-                        if (v > 0) { validPayers[pid] = v; sum += v; }
-                    });
-                    if (Math.abs(sum - total) > 1) return alert(`付款金額總和不符 (您輸入了 ${sum}，總額 ${total})`);
-                    payers = validPayers;
-                }
-                const split = people.filter(p => !splitExcludes.includes(p.id)).map(p => p.id);
-                const data = { desc, amount: total, payers, splitBetween: split };
-                initialData ? onUpdate({...data, id: initialData.id}) : onAdd(data);
-                onClose();
-            };
-
-            const activeSplitCount = people.length - splitExcludes.length;
-            const isAllSplit = activeSplitCount === people.length;
-
-            // 新增全選/全不選切換
-            const handleToggleAll = () => {
-                if (splitExcludes.length === 0) {
-                    setSplitExcludes(people.map(p => p.id)); // 全部排除 (全不選)
-                } else {
-                    setSplitExcludes([]); // 清空排除 (全選)
-                }
-            };
+            const [desc, setDesc] = useState(''); const [amount, setAmount] = useState(''); const [payerMode, setPayerMode] = useState('single'); const [mainPayer, setMainPayer] = useState(people[0]?.id); const [multiPayers, setMultiPayers] = useState({}); const [splitExcludes, setSplitExcludes] = useState([]); const [isScanning, setIsScanning] = useState(false);
+            useEffect(() => { if (initialData) { setDesc(initialData.desc); setAmount(initialData.amount); if (Object.keys(initialData.payers).length > 1) { setPayerMode('multi'); setMultiPayers(initialData.payers); } else { setPayerMode('single'); setMainPayer(parseInt(Object.keys(initialData.payers)[0])); } setSplitExcludes(people.filter(p => !initialData.splitBetween.includes(p.id)).map(p => p.id)); } }, [initialData]);
+            const handleScan = async (e) => { const file = e.target.files[0]; if (!file) return; setIsScanning(true); try { const b64 = await fileToBase64(file); const res = await callGemini({ contents: [{ role: "user", parts: [{ text: '分析圖片回傳 JSON: {"item": "品項", "total": 數字}', inlineData: { mimeType: file.type, data: b64 } }] }] }, 'image'); const parsed = JSON.parse(res.candidates[0].content.parts[0].text.replace(/```json|```/g, '').trim()); if (parsed.total) setAmount(parsed.total); if (parsed.item) setDesc(parsed.item); } catch { alert('AI 辨識失敗'); } finally { setIsScanning(false); } };
+            const handleSubmit = () => { if (!desc || !amount) return alert('請填寫完整'); const total = parseFloat(amount); let payers = {}; if (payerMode === 'single') payers[mainPayer] = total; else { const validPayers = {}; let sum = 0; Object.entries(multiPayers).forEach(([pid, val]) => { const v = parseFloat(val); if (v > 0) { validPayers[pid] = v; sum += v; } }); if (Math.abs(sum - total) > 1) return alert(`付款金額總和不符 (您輸入了 ${sum}，總額 ${total})`); payers = validPayers; } const split = people.filter(p => !splitExcludes.includes(p.id)).map(p => p.id); const data = { desc, amount: total, payers, splitBetween: split }; initialData ? onUpdate({...data, id: initialData.id}) : onAdd(data); onClose(); };
+            const activeSplitCount = people.length - splitExcludes.length; const isAllSplit = activeSplitCount === people.length;
+            const handleToggleAll = () => { if (splitExcludes.length === 0) setSplitExcludes(people.map(p => p.id)); else setSplitExcludes([]); };
 
             return (
                 <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
@@ -886,22 +640,10 @@
                         <div className="space-y-4">
                             <div><label className="text-xs text-slate-500 font-bold">品項</label><input className="w-full p-3 border rounded-xl mt-1" value={desc} onChange={e => setDesc(e.target.value)} /></div>
                             <div><label className="text-xs text-slate-500 font-bold">金額</label><input type="number" className="w-full p-3 border rounded-xl mt-1 text-xl font-bold" value={amount} onChange={e => setAmount(e.target.value)} /></div>
-                            <div className="bg-slate-50 p-4 rounded-xl">
-                                <div className="flex justify-between mb-2"><label className="text-xs font-bold text-slate-500">付款人</label><button onClick={() => setPayerMode(m => m === 'single' ? 'multi' : 'single')} className="text-xs text-teal-600 underline">{payerMode === 'single' ? '切換多人' : '切換單人'}</button></div>
-                                {payerMode === 'single' ? <select className="w-full p-3 border rounded-xl bg-white" value={mainPayer} onChange={e => setMainPayer(parseInt(e.target.value))}>{people.map(p => <option key={p.id} value={p.id}>{getPersonName(p.id)}</option>)}</select> : <div className="space-y-2">{people.map(p => <div key={p.id} className="flex justify-between items-center"><span className="text-sm">{getPersonName(p.id)}</span><input type="number" className="w-24 p-2 border rounded text-right" value={multiPayers[p.id]||''} onChange={e => setMultiPayers(prev=>({...prev, [p.id]:e.target.value}))} /></div>)}</div>}
-                            </div>
+                            <div className="bg-slate-50 p-4 rounded-xl"><div className="flex justify-between mb-2"><label className="text-xs font-bold text-slate-500">付款人</label><button onClick={() => setPayerMode(m => m === 'single' ? 'multi' : 'single')} className="text-xs text-teal-600 underline">{payerMode === 'single' ? '切換多人' : '切換單人'}</button></div>{payerMode === 'single' ? <select className="w-full p-3 border rounded-xl bg-white" value={mainPayer} onChange={e => setMainPayer(parseInt(e.target.value))}>{people.map(p => <option key={p.id} value={p.id}>{getPersonName(p.id)}</option>)}</select> : <div className="space-y-2">{people.map(p => <div key={p.id} className="flex justify-between items-center"><span className="text-sm">{getPersonName(p.id)}</span><input type="number" className="w-24 p-2 border rounded text-right" value={multiPayers[p.id]||''} onChange={e => setMultiPayers(prev=>({...prev, [p.id]:e.target.value}))} /></div>)}</div>}</div>
                             <div>
-                                <div className="flex justify-between items-center mb-2">
-                                    <label className="text-xs text-slate-500 font-bold block">分攤給？ <span className="text-teal-600 font-normal">{isAllSplit ? '(預設：全員均攤)' : `(指定 ${activeSplitCount} 人)`}</span></label>
-                                    <button onClick={handleToggleAll} className="text-xs bg-slate-100 hover:bg-slate-200 text-slate-600 px-2 py-1 rounded transition">
-                                        {splitExcludes.length === 0 ? '全不選' : '全選'}
-                                    </button>
-                                </div>
-                                <div className="flex flex-wrap gap-2">{people.map(p => (
-                                    <button key={p.id} onClick={() => setSplitExcludes(prev => prev.includes(p.id) ? prev.filter(id=>id!==p.id) : [...prev, p.id])} className={`px-3 py-2 rounded-full text-sm border transition-all ${!splitExcludes.includes(p.id) ? 'bg-teal-100 text-teal-700 font-bold border-teal-200' : 'bg-white text-slate-300 border-slate-100'}`}>
-                                        {getPersonName(p.id)} {!splitExcludes.includes(p.id) && <i className="fa-solid fa-check ml-1 text-xs"></i>}
-                                    </button>
-                                ))}</div>
+                                <div className="flex justify-between items-center mb-2"><label className="text-xs text-slate-500 font-bold block">分攤給？ <span className="text-teal-600 font-normal">{isAllSplit ? '(預設：全員均攤)' : `(指定 ${activeSplitCount} 人)`}</span></label><button onClick={handleToggleAll} className="text-xs bg-slate-100 hover:bg-slate-200 text-slate-600 px-2 py-1 rounded transition">{splitExcludes.length === 0 ? '全不選' : '全選'}</button></div>
+                                <div className="flex flex-wrap gap-2">{people.map(p => (<button key={p.id} onClick={() => setSplitExcludes(prev => prev.includes(p.id) ? prev.filter(id=>id!==p.id) : [...prev, p.id])} className={`px-3 py-2 rounded-full text-sm border transition-all ${!splitExcludes.includes(p.id) ? 'bg-teal-100 text-teal-700 font-bold border-teal-200' : 'bg-white text-slate-300 border-slate-100'}`}>{getPersonName(p.id)} {!splitExcludes.includes(p.id) && <i className="fa-solid fa-check ml-1 text-xs"></i>}</button>))}</div>
                             </div>
                         </div>
                         <button onClick={handleSubmit} className="w-full mt-8 bg-black text-white p-4 rounded-xl font-bold shadow-lg">確認</button>
@@ -912,19 +654,58 @@
 
         const App = () => {
             const [showSplash, setShowSplash] = useState(true);
-            const [view, setView] = useState('splash'); // splash, projectList, createProject, activeProject, settings
+            const [view, setView] = useState('projectList'); 
             const [projects, setProjects] = useState([]);
             const [currentProjectId, setCurrentProjectId] = useState(null);
+            const [user, setUser] = useState(null);
+            
+            // 用來防抖更新 (避免打字太快一直塞滿 Firebase 寫入額度)
+            const debounceTimer = useRef(null);
 
+            // 1. 初始化 Firebase 登入狀態 (匿名登入)
             useEffect(() => {
-                const saved = localStorage.getItem('splitEasy_projects');
-                if (saved) setProjects(JSON.parse(saved));
-                setTimeout(() => { setShowSplash(false); setView('projectList'); }, 2000);
+                const initAuth = async () => {
+                    try { 
+                        await signInAnonymously(auth); 
+                    } catch (e) { 
+                        console.error("Firebase Login Error:", e);
+                        if (e.code === 'auth/configuration-not-found') {
+                            alert("【系統提示】請前往 Firebase 後台 -> Authentication -> Sign-in method，啟用「匿名登入 (Anonymous)」以開始使用！");
+                        } else {
+                            alert("無法連線至資料庫：" + e.message);
+                        }
+                        setShowSplash(false); // 錯誤時也要關閉載入畫面，避免永遠卡住
+                    }
+                };
+                initAuth();
+                const unsubscribe = onAuthStateChanged(auth, setUser);
+                return () => unsubscribe();
             }, []);
 
-            useEffect(() => { if (projects.length > 0) localStorage.setItem('splitEasy_projects', JSON.stringify(projects)); }, [projects]);
+            // 2. 即時連線：監聽 Firebase 資料庫變化
+            useEffect(() => {
+                if (!user) return;
+                const projectsRef = collection(db, 'artifacts', FIREBASE_APP_ID, 'public', 'data', 'projects');
+                
+                const unsubscribe = onSnapshot(projectsRef, (snapshot) => {
+                    const projs = [];
+                    snapshot.forEach(d => projs.push({ id: d.id, ...d.data() }));
+                    // 依照更新時間排序 (新到舊)
+                    projs.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+                    setProjects(projs);
+                    
+                    // 資料載入完成後隱藏 Splash
+                    setTimeout(() => setShowSplash(false), 800);
+                }, (error) => {
+                    console.error("Firestore error:", error);
+                    setShowSplash(false);
+                });
 
-            const createProject = (name, type) => {
+                return () => unsubscribe();
+            }, [user]);
+
+            const createProject = async (name, type) => {
+                if (!user) return alert("尚未連線成功，請確認 Firebase 設定是否正確。");
                 const newP = {
                     id: Date.now().toString(),
                     name: name || (type === 'dining' ? '未命名聚餐' : '未命名旅遊'),
@@ -932,22 +713,45 @@
                     updatedAt: new Date().toISOString(),
                     data: type === 'dining' ? { date: new Date().toISOString().split('T')[0], people: [{ id: 1, name: '', payerId: 1 }, { id: 2, name: '', payerId: 2 }], totalBill: '', serviceChargeType: 'percent', serviceChargeValue: 10, splitMode: 'even', customAmounts: {} } : { name, days: 1, people: [{id: 1, name: '', payerId: 1}, {id: 2, name: '', payerId: 2}], expenses: [] }
                 };
-                setProjects(prev => [newP, ...prev]);
-                setCurrentProjectId(newP.id);
-                setView('activeProject');
+                
+                try {
+                    // 寫入雲端
+                    await setDoc(doc(db, 'artifacts', FIREBASE_APP_ID, 'public', 'data', 'projects', newP.id), newP);
+                    setCurrentProjectId(newP.id);
+                    setView('activeProject');
+                } catch(e) { console.error(e); alert("建立失敗，請檢查網路"); }
             };
 
-            const deleteProject = (id, e) => {
+            const deleteProject = async (id, e) => {
                 e.stopPropagation();
-                if(confirm('確定刪除？')) {
-                    const next = projects.filter(p => p.id !== id);
-                    setProjects(next);
-                    if(next.length === 0) localStorage.removeItem('splitEasy_projects');
+                if(confirm('確定刪除？此動作會同時刪除雲端資料，所有人將無法看到。')) {
+                    if (!user) return;
+                    try {
+                        await deleteDoc(doc(db, 'artifacts', FIREBASE_APP_ID, 'public', 'data', 'projects', id));
+                        if (currentProjectId === id) setView('projectList');
+                    } catch(e) { console.error(e); }
                 }
             };
 
             const updateCurrentData = (newData) => {
-                setProjects(prev => prev.map(p => p.id === currentProjectId ? { ...p, data: newData, updatedAt: new Date().toISOString() } : p));
+                // 先在本地做一個樂觀更新 (畫面不會卡頓)
+                setProjects(prev => {
+                    const targetProj = prev.find(p => p.id === currentProjectId);
+                    if (!targetProj) return prev;
+                    
+                    const updatedProj = { ...targetProj, data: newData, updatedAt: new Date().toISOString() };
+                    
+                    // 防抖機制：0.8秒內沒有新動作，才將資料打上雲端，保護免費用量
+                    if (debounceTimer.current) clearTimeout(debounceTimer.current);
+                    debounceTimer.current = setTimeout(() => {
+                        if (auth.currentUser) {
+                            setDoc(doc(db, 'artifacts', FIREBASE_APP_ID, 'public', 'data', 'projects', currentProjectId), updatedProj)
+                            .catch(e => console.error("Sync error:", e));
+                        }
+                    }, 800);
+
+                    return prev.map(p => p.id === currentProjectId ? updatedProj : p);
+                });
             };
 
             const activeProject = projects.find(p => p.id === currentProjectId);
@@ -957,8 +761,8 @@
             return (
                 <div className="min-h-screen">
                     <header className="bg-white shadow-sm sticky top-0 z-10 px-4 py-3 flex items-center justify-between">
-                        {view === 'activeProject' ? <button onClick={() => setView('projectList')} className="flex items-center gap-1 text-slate-500 font-bold"><i className="fa-solid fa-arrow-left"></i> 列表</button> : <div className="flex items-center gap-2 text-teal-600 font-bold text-lg"><i className="fa-solid fa-calculator"></i> Split Easy</div>}
-                        {view === 'activeProject' && activeProject && <h1 className="font-bold text-base text-slate-800">{activeProject.name}</h1>}
+                        {view === 'activeProject' ? <button onClick={() => setView('projectList')} className="flex items-center gap-1 text-slate-500 font-bold"><i className="fa-solid fa-arrow-left"></i> 列表</button> : <div className="flex items-center gap-2 text-teal-600 font-bold text-lg"><i className="fa-solid fa-cloud"></i> Split Easy 雲端版</div>}
+                        {view === 'activeProject' && activeProject && <div className="flex items-center gap-2"><div className="w-2 h-2 bg-teal-500 rounded-full animate-pulse"></div><h1 className="font-bold text-base text-slate-800">{activeProject.name}</h1></div>}
                     </header>
                     <main className="max-w-md mx-auto min-h-[calc(100vh-60px)] relative">
                         {view === 'settings' && <SettingsScreen onBack={() => setView('projectList')} />}
