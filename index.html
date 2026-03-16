@@ -7,7 +7,6 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-    <!-- 使用 Babel 解析 JSX 與 Module -->
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
@@ -22,7 +21,6 @@
 <body class="bg-slate-50 text-slate-800">
     <div id="root"></div>
 
-    <!-- 注意這裡加上了 data-type="module" 讓瀏覽器支援 ES Module 引入 Firebase -->
     <script type="text/babel" data-type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
@@ -30,7 +28,7 @@
 
         const { useState, useEffect, useRef } = React;
 
-        // --- Firebase 初始化 (兆禾的專屬金鑰) ---
+        // --- Firebase 初始化 ---
         const firebaseConfig = {
             apiKey: "AIzaSyAK7SbGI_32ShLGvGeo0S5fa7ZvtxHPBM8",
             authDomain: "spliteasy-2026.firebaseapp.com",
@@ -44,24 +42,33 @@
         const db = getFirestore(app);
         const FIREBASE_APP_ID = 'spliteasy-2026'; 
 
-        // --- Gemini API ---
+        // --- Gemini API (修復了模型名稱與錯誤處理) ---
         const callGemini = async (payload, type = 'text') => {
             const userApiKey = localStorage.getItem('splitEasy_apiKey');
             if(!userApiKey) {
                 throw new Error("請先至首頁右上角「設定」填入您的 Gemini API Key！");
             }
-            const model = 'gemini-2.5-flash-preview-09-2025';
+            
+            // 使用穩定且支援多模態的 gemini-1.5-flash，原代碼中 2.5-preview 為無效模型
+            const model = 'gemini-1.5-flash';
             const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${userApiKey}`;
+            
             try {
-                const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+                const response = await fetch(url, { 
+                    method: 'POST', 
+                    headers: { 'Content-Type': 'application/json' }, 
+                    body: JSON.stringify(payload) 
+                });
+                
                 if (!response.ok) {
-                    const errData = await response.json();
-                    console.error("Gemini API Error:", errData);
-                    throw new Error(`API Error: ${response.status}`);
+                    const errData = await response.json().catch(() => ({}));
+                    console.error("Gemini API 完整錯誤:", errData);
+                    const detailMsg = errData.error?.message || response.statusText || "未知的系統錯誤";
+                    throw new Error(`API 請求失敗 (${response.status}): ${detailMsg}`);
                 }
                 return await response.json();
             } catch (error) { 
-                console.error(error); 
+                console.error("Fetch 過程發生錯誤:", error); 
                 throw error; 
             }
         };
@@ -183,8 +190,6 @@
         };
 
         // --- UI 元件 ---
-
-        // 客製化對話框 (取代原生 alert / confirm)
         const DialogModal = ({ dialog, onClose }) => {
             if (!dialog) return null;
             return (
@@ -213,14 +218,8 @@
             const [localPeople, setLocalPeople] = useState(people);
             const [selectedId, setSelectedId] = useState(null);
             
-            const handleBind = (childId, parentId) => {
-                setLocalPeople(prev => prev.map(p => p.id === childId ? { ...p, payerId: parentId } : p));
-            };
-
-            const handleUnbind = (childId) => {
-                setLocalPeople(prev => prev.map(p => p.id === childId ? { ...p, payerId: p.id } : p));
-            };
-
+            const handleBind = (childId, parentId) => { setLocalPeople(prev => prev.map(p => p.id === childId ? { ...p, payerId: parentId } : p)); };
+            const handleUnbind = (childId) => { setLocalPeople(prev => prev.map(p => p.id === childId ? { ...p, payerId: p.id } : p)); };
             const handleSave = () => { onUpdate(localPeople); onNext(); };
 
             const handleAvatarClick = (id, isMaster) => {
@@ -304,7 +303,7 @@
                     <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 space-y-6">
                         <div>
                             <label className="block text-sm font-bold text-slate-800 mb-2">Gemini API Key</label>
-                            <p className="text-xs text-slate-500 mb-2">請輸入 Gemini API Key。金鑰僅儲存於手機中，安全無虞。</p>
+                            <p className="text-xs text-slate-500 mb-2">請輸入 Google AI Studio 申請的 API Key。</p>
                             <input type="password" className="w-full p-4 rounded-xl bg-slate-50 border border-slate-200 outline-none focus:border-teal-500 font-mono text-sm" placeholder="貼上您的 API Key (AIza...)" value={keyInput} onChange={e => setKeyInput(e.target.value)} />
                         </div>
                         <div className="bg-blue-50 p-4 rounded-xl text-blue-800 text-sm">
@@ -425,18 +424,20 @@
                     const res = await callGemini({ 
                         contents: [{ 
                             role: "user", 
-                            parts: [{ 
-                                text: '分析圖片回傳 JSON: {"total": 數字, "serviceCharge": 數字(若無則0)}', 
-                                inlineData: { mimeType: file.type, data: b64 } 
-                            }] 
+                            parts: [
+                                { text: '分析圖片，嚴格回傳 JSON 格式 (不要包含 markdown 標籤或其他文字): {"total": 數字, "serviceCharge": 數字(若無則0)}' }, 
+                                { inlineData: { mimeType: file.type, data: b64 } }
+                            ] 
                         }] 
                     }, 'image');
                     
                     const rawText = res.candidates[0].content.parts[0].text;
-                    const cleanText = rawText.replace(/```json/g, '').replace(/```/g, '').trim();
-                    const parsed = JSON.parse(cleanText);
+                    const jsonMatch = rawText.match(/\{[\s\S]*\}/);
+                    if (!jsonMatch) throw new Error("AI 未回傳有效的 JSON 格式");
+                    
+                    const parsed = JSON.parse(jsonMatch[0]);
 
-                    if (parsed.total) {
+                    if (parsed.total !== undefined) {
                         setData(prev => ({ 
                             ...prev, 
                             totalBill: parsed.total, 
@@ -726,19 +727,20 @@
                     const res = await callGemini({ 
                         contents: [{ 
                             role: "user", 
-                            parts: [{ 
-                                text: '分析圖片回傳 JSON: {"item": "品項", "total": 數字}', 
-                                inlineData: { mimeType: file.type, data: b64 } 
-                            }] 
+                            parts: [
+                                { text: '分析圖片，嚴格回傳 JSON 格式 (不要包含 markdown 標籤或其他文字): {"item": "品項", "total": 數字}' }, 
+                                { inlineData: { mimeType: file.type, data: b64 } }
+                            ] 
                         }] 
                     }, 'image'); 
                     
-                    // 安全的處理 AI 回傳格式，避免因為正規表達式造成意外中斷解析
                     const rawText = res.candidates[0].content.parts[0].text;
-                    const cleanText = rawText.replace(/```json/g, '').replace(/```/g, '').trim();
-                    const parsed = JSON.parse(cleanText);
+                    const jsonMatch = rawText.match(/\{[\s\S]*\}/);
+                    if (!jsonMatch) throw new Error("AI 未回傳有效的 JSON 格式");
                     
-                    if (parsed.total) setAmount(parsed.total); 
+                    const parsed = JSON.parse(jsonMatch[0]);
+                    
+                    if (parsed.total !== undefined) setAmount(parsed.total); 
                     if (parsed.item) setDesc(parsed.item); 
                 } catch (err) { 
                     showMessage({title: 'AI 辨識失敗', message: err.message}); 
@@ -797,18 +799,15 @@
             const [showSplash, setShowSplash] = useState(true);
             const [view, setView] = useState('projectList'); 
             
-            // 專案列表 (Local Directory - 存在手機裡)
             const [projects, setProjects] = useState([]);
-            // 目前正在查看/共編的專案資料
             const [activeProjectData, setActiveProjectData] = useState(null);
             const [currentProjectId, setCurrentProjectId] = useState(null);
             
             const [user, setUser] = useState(null);
-            const [dialog, setDialog] = useState(null); // { type: 'alert'|'confirm', title, message, onConfirm }
+            const [dialog, setDialog] = useState(null);
             
             const debounceTimer = useRef(null);
 
-            // 1. 初始化 Firebase 登入狀態 (匿名登入) & 讀取本地專案清單
             useEffect(() => {
                 const savedProjects = localStorage.getItem('splitEasy_myProjects');
                 if (savedProjects) {
@@ -831,7 +830,6 @@
                 return () => unsubscribe();
             }, []);
 
-            // 2. 處理邀請連結 (?join=xxxx) 與關閉載入畫面
             useEffect(() => {
                 if (!user) return;
                 const params = new URLSearchParams(window.location.search);
@@ -839,7 +837,6 @@
                 
                 const processJoin = async () => {
                     if (joinId) {
-                        // 清除網址列的參數，讓畫面乾淨
                         window.history.replaceState({}, document.title, window.location.pathname);
                         
                         try {
@@ -848,12 +845,10 @@
                             
                             if (docSnap.exists()) {
                                 const cloudData = { id: docSnap.id, ...docSnap.data() };
-                                // 加入到我的本地清單
                                 setProjects(prev => {
                                     const exists = prev.some(p => p.id === cloudData.id);
                                     return exists ? prev : [cloudData, ...prev];
                                 });
-                                // 直接進入包廂
                                 setCurrentProjectId(joinId);
                                 setActiveProjectData(cloudData);
                                 setView('activeProject');
@@ -865,21 +860,23 @@
                             setDialog({ type: 'alert', title: '網路錯誤', message: '加入專案失敗，請檢查網路連線。' });
                         }
                     }
-                    // ★ 核心修復：無論是正常載入還是透過連結加入，處理完後都要確保關閉載入畫面
                     setTimeout(() => setShowSplash(false), 800);
                 };
                 
                 processJoin();
             }, [user]);
 
-            // 保存本地清單
             useEffect(() => {
                 localStorage.setItem('splitEasy_myProjects', JSON.stringify(projects));
             }, [projects]);
 
-            // 3. 專屬包廂即時同步：只有進入專案時，才開啟該專案的監聽雷達
             useEffect(() => {
-                if (!user || !currentProjectId || view !== 'activeProject') return;
+                if (!user || !currentProjectId || view !== 'activeProject') {
+                    if (view === 'projectList' && !showSplash && !new URLSearchParams(window.location.search).get('join')) {
+                        setTimeout(() => setShowSplash(false), 800);
+                    }
+                    return;
+                }
 
                 const projectRef = doc(db, 'artifacts', FIREBASE_APP_ID, 'public', 'data', 'projects', currentProjectId);
                 
@@ -887,17 +884,16 @@
                     if (snapshot.exists()) {
                         const cloudData = { id: snapshot.id, ...snapshot.data() };
                         setActiveProjectData(cloudData);
-                        
-                        // 同步更新本地清單的名稱與時間，讓首頁保持最新
                         setProjects(prev => prev.map(p => p.id === cloudData.id ? { ...p, name: cloudData.name, updatedAt: cloudData.updatedAt } : p));
+                        setTimeout(() => setShowSplash(false), 300);
                     } else {
-                        // 專案在雲端被刪除了
                         setDialog({ type: 'alert', title: '專案已刪除', message: '這個共編專案已經被刪除了。' });
                         setView('projectList');
                         setProjects(prev => prev.filter(p => p.id !== currentProjectId));
                     }
                 }, (error) => {
                     console.error("Firestore error:", error);
+                    setShowSplash(false);
                 });
 
                 return () => unsubscribe();
@@ -908,7 +904,7 @@
             const createProject = async (name, type) => {
                 if (!user) return showMessage({ message: "尚未連線成功，請確認 Firebase 設定。" });
                 const newP = {
-                    id: Date.now().toString() + Math.floor(Math.random()*1000).toString(), // 增加亂數降低房號重複機率
+                    id: Date.now().toString() + Math.floor(Math.random()*1000).toString(),
                     name: name || (type === 'dining' ? '未命名聚餐' : '未命名旅遊'),
                     type,
                     updatedAt: new Date().toISOString(),
@@ -917,7 +913,6 @@
                 
                 try {
                     await setDoc(doc(db, 'artifacts', FIREBASE_APP_ID, 'public', 'data', 'projects', newP.id), newP);
-                    // 建立成功後，存入本地清單並進入
                     setProjects(prev => [newP, ...prev]);
                     setCurrentProjectId(newP.id);
                     setActiveProjectData(newP);
