@@ -42,35 +42,53 @@
         const db = getFirestore(app);
         const FIREBASE_APP_ID = 'spliteasy-2026'; 
 
-        // --- Gemini API (修復了模型名稱與錯誤處理) ---
+        // --- Gemini API (導入高可用性自動備援機制 Auto-Fallback) ---
         const callGemini = async (payload, type = 'text') => {
             const userApiKey = localStorage.getItem('splitEasy_apiKey');
             if(!userApiKey) {
                 throw new Error("請先至首頁右上角「設定」填入您的 Gemini API Key！");
             }
             
-            // 使用穩定且支援多模態的 gemini-1.5-flash，原代碼中 2.5-preview 為無效模型
-            const model = 'gemini-1.5-flash';
-            const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${userApiKey}`;
-            
-            try {
-                const response = await fetch(url, { 
-                    method: 'POST', 
-                    headers: { 'Content-Type': 'application/json' }, 
-                    body: JSON.stringify(payload) 
-                });
+            // ★ 自動備援陣列：優先嘗試 2.5 最新版，若 404 (查無此路線) 則自動切換至 1.5 最新穩定版
+            const models = ['gemini-2.5-flash-preview-09-2025', 'gemini-1.5-flash-latest'];
+            let lastErrorMsg = "未知的系統錯誤";
+
+            for (const model of models) {
+                const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${userApiKey}`;
                 
-                if (!response.ok) {
+                try {
+                    const response = await fetch(url, { 
+                        method: 'POST', 
+                        headers: { 'Content-Type': 'application/json' }, 
+                        body: JSON.stringify(payload) 
+                    });
+                    
+                    if (response.ok) {
+                        return await response.json();
+                    }
+                    
+                    // 解析錯誤訊息
                     const errData = await response.json().catch(() => ({}));
-                    console.error("Gemini API 完整錯誤:", errData);
-                    const detailMsg = errData.error?.message || response.statusText || "未知的系統錯誤";
-                    throw new Error(`API 請求失敗 (${response.status}): ${detailMsg}`);
+                    lastErrorMsg = errData.error?.message || response.statusText;
+                    console.warn(`嘗試模型 [${model}] 失敗:`, lastErrorMsg);
+                    
+                    // 如果錯誤是 404 (找不到模型)，就繼續迴圈，無縫切換到下一個備援模型
+                    if (response.status === 404) {
+                        continue; 
+                    } else {
+                        // 如果是 400(請求格式錯誤) 或 403(權限不足)，切換模型也沒用，直接拋出錯誤
+                        throw new Error(`API 請求失敗 (${response.status}): ${lastErrorMsg}`);
+                    }
+                } catch (error) { 
+                    // 攔截並拋出嚴重錯誤，否則記錄後繼續嘗試
+                    if (error.message.includes('API 請求失敗')) throw error;
+                    console.warn(`Fetch 連線異常 (${model}):`, error); 
+                    lastErrorMsg = error.message;
                 }
-                return await response.json();
-            } catch (error) { 
-                console.error("Fetch 過程發生錯誤:", error); 
-                throw error; 
             }
+            
+            // 只有當所有備援路線都全軍覆沒時，才會走到這裡報錯
+            throw new Error(`所有 AI 節點皆連線失敗。請確認金鑰權限。最後錯誤: ${lastErrorMsg}`);
         };
 
         const fileToBase64 = (file) => {
