@@ -42,53 +42,81 @@
         const db = getFirestore(app);
         const FIREBASE_APP_ID = 'spliteasy-2026'; 
 
-        // --- Gemini API (導入高可用性自動備援機制 Auto-Fallback) ---
+        // 全域變數：快取已找到的有效模型，避免每次連線都去問菜單
+        let cachedAiModel = null;
+
+        // --- Gemini API (導入動態模型探索機制 Dynamic Model Discovery) ---
         const callGemini = async (payload, type = 'text') => {
             const userApiKey = localStorage.getItem('splitEasy_apiKey');
             if(!userApiKey) {
                 throw new Error("請先至首頁右上角「設定」填入您的 Gemini API Key！");
             }
             
-            // ★ 自動備援陣列：優先嘗試 2.5 最新版，若 404 (查無此路線) 則自動切換至 1.5 最新穩定版
-            const models = ['gemini-2.5-flash-preview-09-2025', 'gemini-1.5-flash-latest'];
-            let lastErrorMsg = "未知的系統錯誤";
-
-            for (const model of models) {
-                const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${userApiKey}`;
-                
+            // 1. 動態探索可用模型 (如果還沒找過的話)
+            if (!cachedAiModel) {
                 try {
-                    const response = await fetch(url, { 
-                        method: 'POST', 
-                        headers: { 'Content-Type': 'application/json' }, 
-                        body: JSON.stringify(payload) 
-                    });
+                    console.log("正在向 Google 獲取可用模型清單...");
+                    const listUrl = `https://generativelanguage.googleapis.com/v1beta/models?key=${userApiKey}`;
+                    const listRes = await fetch(listUrl);
                     
-                    if (response.ok) {
-                        return await response.json();
-                    }
-                    
-                    // 解析錯誤訊息
-                    const errData = await response.json().catch(() => ({}));
-                    lastErrorMsg = errData.error?.message || response.statusText;
-                    console.warn(`嘗試模型 [${model}] 失敗:`, lastErrorMsg);
-                    
-                    // 如果錯誤是 404 (找不到模型)，就繼續迴圈，無縫切換到下一個備援模型
-                    if (response.status === 404) {
-                        continue; 
+                    if (listRes.ok) {
+                        const listData = await listRes.json();
+                        // 篩選出支援 generateContent 的模型
+                        const validModels = listData.models.filter(m => m.supportedGenerationMethods?.includes('generateContent'));
+                        
+                        // 優先找最新的 flash 模型 (速度快、支援圖片、成本低)
+                        const findModel = (keyword) => validModels.find(m => m.name.includes(keyword))?.name.replace('models/', '');
+                        
+                        // 依照 2026 現代版本的可能命名順序尋找
+                        cachedAiModel = findModel('gemini-2.5-flash') || 
+                                        findModel('gemini-2.0-flash') || 
+                                        findModel('gemini-1.5-flash') || 
+                                        findModel('flash') || 
+                                        (validModels[0] ? validModels[0].name.replace('models/', '') : null);
+                                        
+                        console.log("✅ 動態綁定最佳模型成功:", cachedAiModel);
                     } else {
-                        // 如果是 400(請求格式錯誤) 或 403(權限不足)，切換模型也沒用，直接拋出錯誤
-                        throw new Error(`API 請求失敗 (${response.status}): ${lastErrorMsg}`);
+                        console.warn("無法獲取模型清單，API 金鑰可能無效或權限不足");
                     }
-                } catch (error) { 
-                    // 攔截並拋出嚴重錯誤，否則記錄後繼續嘗試
-                    if (error.message.includes('API 請求失敗')) throw error;
-                    console.warn(`Fetch 連線異常 (${model}):`, error); 
-                    lastErrorMsg = error.message;
+                } catch (e) {
+                    console.warn("探索模型時發生網路錯誤", e);
+                }
+                
+                // 如果探索失敗，預設退回 Canvas 預覽環境強制規定的模型作為最後防線
+                if (!cachedAiModel) {
+                    cachedAiModel = 'gemini-2.5-flash-preview-09-2025';
+                    console.log("⚠️ 使用預設備援模型:", cachedAiModel);
                 }
             }
+
+            // 2. 拿著確定有效的模型名稱，正式發送請求
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/${cachedAiModel}:generateContent?key=${userApiKey}`;
             
-            // 只有當所有備援路線都全軍覆沒時，才會走到這裡報錯
-            throw new Error(`所有 AI 節點皆連線失敗。請確認金鑰權限。最後錯誤: ${lastErrorMsg}`);
+            try {
+                const response = await fetch(url, { 
+                    method: 'POST', 
+                    headers: { 'Content-Type': 'application/json' }, 
+                    body: JSON.stringify(payload) 
+                });
+                
+                if (!response.ok) {
+                    const errData = await response.json().catch(() => ({}));
+                    console.error(`模型 [${cachedAiModel}] 報錯:`, errData);
+                    const detailMsg = errData.error?.message || response.statusText || "未知的系統錯誤";
+                    
+                    // 如果遭遇 404 (代表這個快取的模型被下架了)，清空快取，下次就會重新要菜單
+                    if (response.status === 404) {
+                        cachedAiModel = null;
+                        throw new Error(`模型已更新，請再試一次 (404)`);
+                    }
+                    
+                    throw new Error(`API 請求失敗 (${response.status}): ${detailMsg}`);
+                }
+                return await response.json();
+            } catch (error) { 
+                console.error("Fetch 連線過程發生錯誤:", error); 
+                throw error; 
+            }
         };
 
         const fileToBase64 = (file) => {
@@ -422,7 +450,6 @@
         const DiningMode = ({ projectData, onUpdate, showMessage }) => {
             const [step, setStep] = useState(1);
             const [data, setData] = useState(projectData);
-            const [isScanning, setIsScanning] = useState(false);
 
             useEffect(() => { setData(projectData); }, [projectData]);
             useEffect(() => { if (JSON.stringify(data) !== JSON.stringify(projectData)) onUpdate(data); }, [data]);
@@ -432,43 +459,6 @@
             const removePerson = (id) => { if(data.people.length > 1) setData(prev => ({ ...prev, people: prev.people.filter(p => p.id !== id) })); };
             const updatePersonName = (id, name) => setData(prev => ({ ...prev, people: prev.people.map(p => p.id === id ? { ...p, name } : p) }));
             const getDisplayName = (person, index) => person.name || ANIMAL_NAMES[(person.id + index) % ANIMAL_NAMES.length];
-
-            const handleScanReceipt = async (e) => {
-                const file = e.target.files[0];
-                if (!file) return;
-                setIsScanning(true);
-                try {
-                    const b64 = await fileToBase64(file);
-                    const res = await callGemini({ 
-                        contents: [{ 
-                            role: "user", 
-                            parts: [
-                                { text: '分析圖片，嚴格回傳 JSON 格式 (不要包含 markdown 標籤或其他文字): {"total": 數字, "serviceCharge": 數字(若無則0)}' }, 
-                                { inlineData: { mimeType: file.type, data: b64 } }
-                            ] 
-                        }] 
-                    }, 'image');
-                    
-                    const rawText = res.candidates[0].content.parts[0].text;
-                    const jsonMatch = rawText.match(/\{[\s\S]*\}/);
-                    if (!jsonMatch) throw new Error("AI 未回傳有效的 JSON 格式");
-                    
-                    const parsed = JSON.parse(jsonMatch[0]);
-
-                    if (parsed.total !== undefined) {
-                        setData(prev => ({ 
-                            ...prev, 
-                            totalBill: parsed.total, 
-                            serviceChargeValue: parsed.serviceCharge > 0 ? parsed.serviceCharge : prev.serviceChargeValue, 
-                            serviceChargeType: parsed.serviceCharge > 0 ? 'fixed' : prev.serviceChargeType 
-                        }));
-                    }
-                } catch (err) { 
-                    showMessage({ title: 'AI 錯誤', message: err.message }); 
-                } finally { 
-                    setIsScanning(false); 
-                }
-            };
 
             const calculateResult = () => {
                 const bill = parseFloat(data.totalBill) || 0;
@@ -527,12 +517,10 @@
                         <div className="px-6 animate-fade-in">
                             <div className="flex justify-between items-center mb-6">
                                 <h2 className="text-2xl font-bold">帳單金額</h2>
-                                <div className="relative">
-                                    <input type="file" accept="image/*" onChange={handleScanReceipt} className="absolute inset-0 opacity-0 cursor-pointer w-full h-full" disabled={isScanning} />
-                                    <button className={`flex items-center gap-1 text-xs font-bold px-3 py-2 rounded-full shadow-sm transition ${isScanning ? 'bg-slate-200 text-slate-500' : 'bg-gradient-to-r from-orange-400 to-amber-500 text-white'}`}>
-                                        {isScanning ? <i className="fa-solid fa-spinner fa-spin"></i> : <i className="fa-solid fa-wand-magic-sparkles"></i>} {isScanning ? '辨識中...' : 'AI 讀帳單'}
-                                    </button>
-                                </div>
+                                {/* 替換拍帳單按鈕，改為直接觸發提示框 */}
+                                <button onClick={() => showMessage({ title: '系統提示', message: '努力更新中，敬請期待！' })} className="flex items-center gap-1 text-xs font-bold px-3 py-2 rounded-full shadow-sm transition bg-gradient-to-r from-orange-400 to-amber-500 text-white hover:opacity-90 relative z-10">
+                                    <i className="fa-solid fa-wand-magic-sparkles"></i> AI 讀帳單
+                                </button>
                             </div>
                             <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 space-y-6">
                                 <div>
@@ -719,7 +707,6 @@
             const [mainPayer, setMainPayer] = useState(people[0]?.id); 
             const [multiPayers, setMultiPayers] = useState({}); 
             const [splitExcludes, setSplitExcludes] = useState([]); 
-            const [isScanning, setIsScanning] = useState(false);
             
             useEffect(() => { 
                 if (initialData) { 
@@ -735,37 +722,6 @@
                     setSplitExcludes(people.filter(p => !initialData.splitBetween.includes(p.id)).map(p => p.id)); 
                 } 
             }, [initialData]);
-
-            const handleScan = async (e) => { 
-                const file = e.target.files[0]; 
-                if (!file) return; 
-                setIsScanning(true); 
-                try { 
-                    const b64 = await fileToBase64(file); 
-                    const res = await callGemini({ 
-                        contents: [{ 
-                            role: "user", 
-                            parts: [
-                                { text: '分析圖片，嚴格回傳 JSON 格式 (不要包含 markdown 標籤或其他文字): {"item": "品項", "total": 數字}' }, 
-                                { inlineData: { mimeType: file.type, data: b64 } }
-                            ] 
-                        }] 
-                    }, 'image'); 
-                    
-                    const rawText = res.candidates[0].content.parts[0].text;
-                    const jsonMatch = rawText.match(/\{[\s\S]*\}/);
-                    if (!jsonMatch) throw new Error("AI 未回傳有效的 JSON 格式");
-                    
-                    const parsed = JSON.parse(jsonMatch[0]);
-                    
-                    if (parsed.total !== undefined) setAmount(parsed.total); 
-                    if (parsed.item) setDesc(parsed.item); 
-                } catch (err) { 
-                    showMessage({title: 'AI 辨識失敗', message: err.message}); 
-                } finally { 
-                    setIsScanning(false); 
-                } 
-            };
             
             const handleSubmit = () => { 
                 if (!desc || !amount) return showMessage({message: '請填寫完整'}); 
@@ -797,7 +753,14 @@
                 <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 animate-fade-in">
                     <div className="bg-white w-full max-w-md rounded-t-3xl sm:rounded-3xl p-6 h-[90vh] sm:h-auto overflow-y-auto animate-slide-up">
                         <div className="flex justify-between items-center mb-6"><h3 className="text-xl font-bold">{initialData ? '編輯' : '新增'}消費</h3><button onClick={onClose} className="text-slate-400 font-bold text-lg">✕</button></div>
-                        {!initialData && <div className="mb-6"><label className="flex items-center justify-center gap-2 w-full p-3 rounded-xl border-2 border-dashed border-teal-300 bg-teal-50 text-teal-700 font-bold cursor-pointer hover:bg-teal-100">{isScanning ? <i className="fa-solid fa-spinner fa-spin"></i> : <i className="fa-solid fa-camera"></i>} {isScanning ? '辨識中...' : '拍收據自動填寫'} <input type="file" accept="image/*" className="hidden" onChange={handleScan} /></label></div>}
+                        {/* 替換拍收據按鈕，改為直接觸發提示框 */}
+                        {!initialData && (
+                            <div className="mb-6">
+                                <button onClick={() => showMessage({title: '系統提示', message: '努力更新中，敬請期待！'})} className="flex items-center justify-center gap-2 w-full p-3 rounded-xl border-2 border-dashed border-teal-300 bg-teal-50 text-teal-700 font-bold cursor-pointer hover:bg-teal-100">
+                                    <i className="fa-solid fa-camera"></i> 拍收據自動填寫
+                                </button>
+                            </div>
+                        )}
                         <div className="space-y-4">
                             <div><label className="text-xs text-slate-500 font-bold">品項</label><input className="w-full p-3 border rounded-xl mt-1 bg-slate-50" value={desc} onChange={e => setDesc(e.target.value)} /></div>
                             <div><label className="text-xs text-slate-500 font-bold">金額</label><input type="number" className="w-full p-3 border rounded-xl mt-1 text-xl font-bold bg-slate-50" value={amount} onChange={e => setAmount(e.target.value)} /></div>
