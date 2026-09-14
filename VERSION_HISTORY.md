@@ -105,7 +105,7 @@
 - 單一資料：正式專案改存於 `apps/spliteasy-v2/projects/{projectId}`，所有成員共同讀寫同一份資料，不會因分享連結或換裝置建立分岔房間。
 - 角色權限：owner 才能產生邀請與永久刪除專案；editor 可以共編或自行離開，但不能刪除所有人的資料。
 - 手機分享修正：邀請建立後顯示完整網址，提供 Clipboard API、舊瀏覽器相容複製及手機系統分享；不再因自動複製失敗而讓使用者看不到連結。
-- 內建瀏覽器登入修正：不再忽略 `auth/popup-closed-by-user`；畫面會解釋彈出視窗遭關閉，並提供 Google 整頁重新導向登入。
+- 內建瀏覽器登入修正：Google 登入全面改採整頁重新導向，不再依賴容易被手機或 App 內建瀏覽器攔截、卡住的彈出視窗。
 - 安全規則：只允許 Google 登入、專案成員讀寫及本人讀取個人索引；v1 `artifacts/**` 路徑全面拒絕新讀寫。
 - 裝置清理：每台裝置第一次開啟 v2 時，自動移除舊 `splitEasy_myProjects` 本機清單與 API Key 殘留。
 - 遷移文件：新增 `MIGRATION_CHECKLIST.md`，明定先驗證 v2、再盤點並遞迴清除 v1 Firestore 資料及匿名 Auth 帳號。
