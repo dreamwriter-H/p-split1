@@ -26,8 +26,8 @@
 
     <script type="text/babel" data-type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, collection, doc, setDoc, getDoc, onSnapshot, deleteDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getAuth, GoogleAuthProvider, browserLocalPersistence, setPersistence, signInWithPopup, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, doc, setDoc, getDoc, getDocs, onSnapshot, deleteDoc, writeBatch } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         const { useState, useEffect, useRef } = React;
 
@@ -43,13 +43,38 @@
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
         const db = getFirestore(app);
-        const FIREBASE_APP_ID = 'spliteasy-2026'; 
+        const FIREBASE_APP_ID = 'spliteasy-2026';
+        const DATA_SPACE = 'spliteasy-v2';
+        const DATA_SCHEMA_VERSION = '2.0.0';
+        const projectRefFor = (projectId) => doc(db, 'apps', DATA_SPACE, 'projects', projectId);
+        const memberRefFor = (projectId, uid) => doc(db, 'apps', DATA_SPACE, 'projects', projectId, 'members', uid);
+        const inviteRefFor = (projectId, inviteId) => doc(db, 'apps', DATA_SPACE, 'projects', projectId, 'invites', inviteId);
+        const userProjectRefFor = (uid, projectId) => doc(db, 'users', uid, 'projects', projectId);
+
+        // v2 起首頁以雲端成員索引為準。每台裝置第一次開啟新版時，自動移除 v1 的本機專案清單。
+        try {
+            if (localStorage.getItem('splitEasy_schemaVersion') !== DATA_SCHEMA_VERSION) {
+                localStorage.removeItem('splitEasy_myProjects');
+                localStorage.removeItem('splitEasy_currentProject');
+                localStorage.setItem('splitEasy_schemaVersion', DATA_SCHEMA_VERSION);
+            }
+        } catch (error) {
+            console.warn('無法清理舊版瀏覽器快取：', error);
+        }
 
         // v1.2.0 已移除 Gemini；清除舊版可能留在瀏覽器裡的使用者金鑰。
         try { localStorage.removeItem('splitEasy_apiKey'); } catch (error) {}
 
         // --- 工具 ---
-        const copyToClipboard = (text) => {
+        const copyToClipboard = async (text) => {
+            if (navigator.clipboard?.writeText && window.isSecureContext) {
+                try {
+                    await navigator.clipboard.writeText(text);
+                    return true;
+                } catch (error) {
+                    console.warn('Clipboard API 失敗，改用相容模式：', error);
+                }
+            }
             const textArea = document.createElement("textarea");
             textArea.value = text;
             textArea.style.position = "fixed";
@@ -57,8 +82,10 @@
             document.body.appendChild(textArea);
             textArea.focus();
             textArea.select();
-            try { document.execCommand('copy'); } catch (err) { console.error(err); }
+            let copied = false;
+            try { copied = document.execCommand('copy'); } catch (err) { console.error(err); }
             document.body.removeChild(textArea);
+            return copied;
         };
 
         const createInviteToken = () => {
@@ -189,6 +216,51 @@
             );
         };
 
+        const ShareInviteModal = ({ invite, onClose }) => {
+            const [copyStatus, setCopyStatus] = useState('');
+            if (!invite) return null;
+
+            const handleCopy = async () => {
+                const copied = await copyToClipboard(invite.url);
+                setCopyStatus(copied ? '已複製到剪貼簿' : '無法自動複製，請長按下方網址複製');
+            };
+
+            const handleSystemShare = async () => {
+                if (!navigator.share) {
+                    setCopyStatus('此瀏覽器沒有系統分享功能，請使用複製連結');
+                    return;
+                }
+                try {
+                    await navigator.share({
+                        title: 'Split Easy 共編邀請',
+                        text: `邀請你一起編輯「${invite.projectName}」`,
+                        url: invite.url
+                    });
+                } catch (error) {
+                    if (error.name !== 'AbortError') setCopyStatus('無法開啟系統分享，請改用複製連結');
+                }
+            };
+
+            return (
+                <div className="fixed inset-0 bg-black/60 z-[9999] flex items-center justify-center p-4 animate-fade-in">
+                    <div className="bg-white rounded-3xl p-6 w-full max-w-sm shadow-2xl">
+                        <div className="flex items-center gap-3 mb-3">
+                            <div className="w-10 h-10 rounded-full bg-teal-100 flex items-center justify-center text-teal-600"><i className="fa-solid fa-user-group"></i></div>
+                            <div><h3 className="font-bold text-lg">共編連結已建立</h3><p className="text-xs text-slate-400">只有收到這個網址的人能申請加入</p></div>
+                        </div>
+                        <label className="block text-xs font-bold text-slate-500 mb-2">可見、可長按複製的完整網址</label>
+                        <textarea readOnly value={invite.url} onFocus={event => event.target.select()} className="w-full h-24 p-3 text-xs bg-slate-50 border border-slate-200 rounded-xl text-slate-600 break-all resize-none" />
+                        {copyStatus && <p className={`mt-2 text-xs font-bold ${copyStatus.startsWith('已複製') ? 'text-teal-600' : 'text-amber-600'}`}>{copyStatus}</p>}
+                        <div className="grid grid-cols-2 gap-3 mt-5">
+                            <button onClick={handleCopy} className="p-3 rounded-xl bg-slate-800 text-white font-bold"><i className="fa-solid fa-copy mr-2"></i>複製連結</button>
+                            <button onClick={handleSystemShare} className="p-3 rounded-xl bg-teal-600 text-white font-bold"><i className="fa-solid fa-share-nodes mr-2"></i>系統分享</button>
+                        </div>
+                        <button onClick={onClose} className="w-full mt-3 p-3 rounded-xl bg-slate-100 text-slate-600 font-bold">完成</button>
+                    </div>
+                </div>
+            );
+        };
+
         const WalletSetupScreen = ({ people, onUpdate, onNext, onBack, showMessage }) => {
             const [localPeople, setLocalPeople] = useState(people);
             const [selectedId, setSelectedId] = useState(null);
@@ -268,15 +340,36 @@
             </div>
         );
 
-        const ProjectList = ({ projects, onSelect, onCreate, onDelete }) => (
+        const LoginScreen = ({ onLogin, isLoggingIn, error, hasInvite }) => (
+            <div className="min-h-screen bg-gradient-to-b from-teal-500 to-teal-700 px-6 py-10 flex items-center justify-center">
+                <div className="w-full max-w-sm bg-white rounded-3xl shadow-2xl p-7 text-center">
+                    <div className="w-20 h-20 mx-auto bg-teal-50 rounded-3xl flex items-center justify-center mb-5">
+                        <i className="fa-solid fa-calculator text-4xl text-teal-600"></i>
+                    </div>
+                    <h1 className="text-3xl font-black text-slate-800">Split Easy</h1>
+                    <p className="text-slate-500 mt-2">登入後，只會看到你建立或朋友分享給你的記帳專案。</p>
+                    {hasInvite && <div className="mt-4 p-3 bg-amber-50 text-amber-700 rounded-xl text-sm font-bold"><i className="fa-solid fa-envelope-open-text mr-2"></i>登入後就會加入朋友的共編專案</div>}
+                    {error && <div className="mt-4 p-3 bg-red-50 text-red-600 rounded-xl text-sm text-left">{error}</div>}
+                    <button onClick={onLogin} disabled={isLoggingIn} className="w-full mt-6 p-4 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 shadow-sm font-bold text-slate-700 flex items-center justify-center gap-3 disabled:opacity-60">
+                        {isLoggingIn ? <i className="fa-solid fa-spinner fa-spin text-teal-600"></i> : <i className="fa-brands fa-google text-red-500"></i>}
+                        {isLoggingIn ? '正在登入…' : '使用 Google 帳號登入'}
+                    </button>
+                    <p className="mt-5 text-xs text-slate-400 leading-relaxed">Google 登入只用來辨認「哪些專案屬於你」。我們不會取得你的 Google 密碼。</p>
+                </div>
+            </div>
+        );
+
+        const ProjectList = ({ projects, onSelect, onCreate, onRemove, isLoading }) => (
             <div className="p-6 animate-fade-in pb-24">
                 <div className="mb-6">
                     <div>
                         <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2">我的記帳本 <span className="relative flex h-3 w-3"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-teal-400 opacity-75"></span><span className="relative inline-flex rounded-full h-3 w-3 bg-teal-500"></span></span></h2>
-                        <p className="text-slate-500 text-sm">專屬包廂清單</p>
+                        <p className="text-slate-500 text-sm">你建立的，以及朋友分享給你的專案</p>
                     </div>
                 </div>
-                {projects.length === 0 ? (
+                {isLoading ? (
+                    <div className="text-center py-12"><i className="fa-solid fa-spinner fa-spin text-2xl text-teal-500"></i><p className="text-sm text-slate-400 mt-3">正在讀取你的雲端專案…</p></div>
+                ) : projects.length === 0 ? (
                     <div className="text-center py-12 bg-white rounded-2xl border-2 border-dashed border-slate-200">
                         <i className="fa-regular fa-folder-open text-4xl text-slate-300 mb-2"></i>
                         <p className="text-slate-400">目前沒有任何紀錄</p>
@@ -291,11 +384,14 @@
                                         <div className={`p-3 rounded-full h-fit w-12 h-12 flex items-center justify-center ${p.type === 'travel' ? 'bg-blue-100 text-blue-600' : 'bg-orange-100 text-orange-600'}`}><i className={`fa-solid ${p.type === 'travel' ? 'fa-map' : 'fa-mug-hot'} text-xl`}></i></div>
                                         <div>
                                             <h3 className="font-bold text-lg text-slate-800">{p.name}</h3>
-                                            <p className="text-xs text-slate-400 mt-1">最後更新: {new Date(p.updatedAt).toLocaleTimeString()}</p>
-                                            <span className={`text-[10px] px-2 py-0.5 rounded-full mt-2 inline-block ${p.type === 'travel' ? 'bg-blue-50 text-blue-500' : 'bg-orange-50 text-orange-500'}`}>{p.type === 'travel' ? '多日旅遊' : '單次聚餐'}</span>
+                                            <p className="text-xs text-slate-400 mt-1">最後更新：{p.updatedAt ? new Date(p.updatedAt).toLocaleString('zh-TW') : '剛建立'}</p>
+                                            <div className="flex gap-2 mt-2">
+                                                <span className={`text-[10px] px-2 py-0.5 rounded-full ${p.type === 'travel' ? 'bg-blue-50 text-blue-500' : 'bg-orange-50 text-orange-500'}`}>{p.type === 'travel' ? '多日旅遊' : '單次聚餐'}</span>
+                                                <span className={`text-[10px] px-2 py-0.5 rounded-full ${p.currentUserRole === 'owner' ? 'bg-teal-50 text-teal-600' : 'bg-slate-100 text-slate-500'}`}>{p.currentUserRole === 'owner' ? '我建立的' : '朋友分享'}</span>
+                                            </div>
                                         </div>
                                     </div>
-                                    <button onClick={(e) => onDelete(p.id, e)} className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition"><i className="fa-solid fa-trash"></i></button>
+                                    <button onClick={(e) => onRemove(p, e)} aria-label={p.currentUserRole === 'owner' ? `刪除${p.name}` : `離開${p.name}`} className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition"><i className={`fa-solid ${p.currentUserRole === 'owner' ? 'fa-trash' : 'fa-right-from-bracket'}`}></i></button>
                                 </div>
                             </div>
                         ))}
@@ -978,212 +1074,371 @@
 
         const App = () => {
             const [showSplash, setShowSplash] = useState(true);
-            const [view, setView] = useState('projectList'); 
-            
+            const [authReady, setAuthReady] = useState(false);
+            const [authError, setAuthError] = useState('');
+            const [isLoggingIn, setIsLoggingIn] = useState(false);
+            const [view, setView] = useState('projectList');
             const [projects, setProjects] = useState([]);
+            const [projectsLoading, setProjectsLoading] = useState(false);
             const [activeProjectData, setActiveProjectData] = useState(null);
             const [currentProjectId, setCurrentProjectId] = useState(null);
-            
             const [user, setUser] = useState(null);
             const [dialog, setDialog] = useState(null);
-            
+            const [shareInvite, setShareInvite] = useState(null);
             const debounceTimer = useRef(null);
+            const processedInviteRef = useRef(false);
+
+            const params = new URLSearchParams(window.location.search);
+            const hasPendingInvite = Boolean(params.get('invite') || params.get('join'));
 
             useEffect(() => {
-                const savedProjects = localStorage.getItem('splitEasy_myProjects');
-                if (savedProjects) {
-                    setProjects(JSON.parse(savedProjects));
-                }
-
-                const initAuth = async () => {
-                    try { 
-                        await signInAnonymously(auth); 
-                    } catch (e) { 
-                        console.error("Firebase Login Error:", e);
-                        if (e.code === 'auth/configuration-not-found') {
-                            setDialog({ type: 'alert', title: '系統提示', message: "請前往 Firebase 後台 -> Authentication -> Sign-in method，啟用「匿名登入 (Anonymous)」以開始使用！" });
-                        }
+                let mounted = true;
+                setPersistence(auth, browserLocalPersistence).catch(error => console.warn('登入保存設定失敗：', error));
+                const unsubscribe = onAuthStateChanged(auth, nextUser => {
+                    if (!mounted) return;
+                    const isGoogleAccount = nextUser?.providerData?.some(provider => provider.providerId === 'google.com');
+                    if (nextUser && (nextUser.isAnonymous || !isGoogleAccount)) {
+                        signOut(auth).catch(error => console.warn('清除舊匿名登入失敗：', error));
+                        setUser(null);
+                        setAuthReady(true);
+                        setShowSplash(false);
+                        return;
+                    }
+                    setUser(nextUser);
+                    setAuthReady(true);
+                    setShowSplash(false);
+                    if (!nextUser) {
+                        setProjects([]);
+                        setActiveProjectData(null);
+                        setCurrentProjectId(null);
+                        setView('projectList');
+                    }
+                });
+                const safetyTimer = setTimeout(() => {
+                    if (mounted) {
+                        setAuthReady(true);
                         setShowSplash(false);
                     }
+                }, 5000);
+                return () => {
+                    mounted = false;
+                    clearTimeout(safetyTimer);
+                    unsubscribe();
                 };
-                initAuth();
-                const unsubscribe = onAuthStateChanged(auth, setUser);
-                return () => unsubscribe();
             }, []);
+
+            const handleGoogleLogin = async () => {
+                setIsLoggingIn(true);
+                setAuthError('');
+                try {
+                    const provider = new GoogleAuthProvider();
+                    provider.setCustomParameters({ prompt: 'select_account' });
+                    await signInWithPopup(auth, provider);
+                } catch (error) {
+                    console.error('Google login error:', error);
+                    if (error.code === 'auth/unauthorized-domain') {
+                        setAuthError('目前網址尚未加入 Firebase 授權網域，請由管理者完成設定後再試。');
+                    } else if (error.code === 'auth/operation-not-allowed') {
+                        setAuthError('Firebase 尚未啟用 Google 登入，請由管理者先開啟。');
+                    } else if (error.code !== 'auth/popup-closed-by-user') {
+                        setAuthError('登入失敗，請確認網路後再試一次。');
+                    }
+                } finally {
+                    setIsLoggingIn(false);
+                }
+            };
 
             useEffect(() => {
                 if (!user) return;
-                const params = new URLSearchParams(window.location.search);
-                const inviteCode = params.get('invite');
-                const legacyJoinId = params.get('join');
-                
+                setProjectsLoading(true);
+                const indexCollection = collection(db, 'users', user.uid, 'projects');
+                const unsubscribe = onSnapshot(indexCollection, async indexSnapshot => {
+                    try {
+                        const loaded = await Promise.all(indexSnapshot.docs.map(async indexDoc => {
+                            const indexData = indexDoc.data();
+                            const cloudProject = await getDoc(projectRefFor(indexDoc.id));
+                            if (!cloudProject.exists()) {
+                                deleteDoc(indexDoc.ref).catch(() => {});
+                                return null;
+                            }
+                            return {
+                                id: cloudProject.id,
+                                ...cloudProject.data(),
+                                currentUserRole: indexData.role || (cloudProject.data().ownerId === user.uid ? 'owner' : 'editor')
+                            };
+                        }));
+                        const cleanProjects = loaded.filter(Boolean).sort((a, b) => new Date(b.updatedAt || 0) - new Date(a.updatedAt || 0));
+                        setProjects(cleanProjects);
+                    } catch (error) {
+                        console.error('Project index error:', error);
+                        setDialog({ type: 'alert', title: '讀取專案失敗', message: '無法讀取你的雲端專案，請確認網路或 Firebase 權限設定。' });
+                    } finally {
+                        setProjectsLoading(false);
+                    }
+                }, error => {
+                    console.error('Project list listener error:', error);
+                    setProjectsLoading(false);
+                    setDialog({ type: 'alert', title: '讀取專案失敗', message: '目前無法連線到個人專案目錄。' });
+                });
+                return () => unsubscribe();
+            }, [user]);
+
+            useEffect(() => {
+                if (!user || processedInviteRef.current) return;
+                const joinParams = new URLSearchParams(window.location.search);
+                const inviteCode = joinParams.get('invite');
+                const legacyJoinId = joinParams.get('join');
+                if (!inviteCode && !legacyJoinId) return;
+                processedInviteRef.current = true;
+
                 const processJoin = async () => {
                     if (legacyJoinId) {
                         window.history.replaceState({}, document.title, window.location.pathname);
-                        setDialog({ type: 'alert', title: '邀請連結已更新', message: '舊版共編連結已停用，請向專案擁有者索取新的安全邀請連結。' });
-                    } else if (inviteCode) {
-                        window.history.replaceState({}, document.title, window.location.pathname);
-                        const [projectId, inviteId] = inviteCode.split('.');
-                        if (!projectId || !inviteId) {
-                            setDialog({ type: 'alert', title: '邀請連結無效', message: '邀請連結格式錯誤。' });
-                        } else {
-                            try {
-                                const inviteRef = doc(db, 'artifacts', FIREBASE_APP_ID, 'public', 'data', 'projects', projectId, 'invites', inviteId);
-                                const inviteSnap = await getDoc(inviteRef);
-                                if (!inviteSnap.exists() || inviteSnap.data().status !== 'active') throw new Error('邀請連結已失效或被撤銷。');
-                                const memberRef = doc(db, 'artifacts', FIREBASE_APP_ID, 'public', 'data', 'projects', projectId, 'members', user.uid);
-                                await setDoc(memberRef, { role: 'editor', inviteId, joinedAt: new Date().toISOString() });
-                                const projectSnap = await getDoc(doc(db, 'artifacts', FIREBASE_APP_ID, 'public', 'data', 'projects', projectId));
-                                if (!projectSnap.exists()) throw new Error('找不到這個專案，可能已被刪除。');
-                                const cloudData = { id: projectSnap.id, ...projectSnap.data() };
-                                setProjects(prev => prev.some(p => p.id === cloudData.id) ? prev : [cloudData, ...prev]);
-                                setCurrentProjectId(projectId);
-                                setActiveProjectData(cloudData);
-                                setView('activeProject');
-                            } catch(e) {
-                                console.error(e);
-                                setDialog({ type: 'alert', title: '無法加入專案', message: e.message || '請確認邀請連結是否有效。' });
-                            }
-                        }
+                        setDialog({ type: 'alert', title: '舊邀請連結已停用', message: '資料庫已升級，請向專案擁有者索取 v2 新邀請連結。' });
+                        return;
                     }
-                    setTimeout(() => setShowSplash(false), 800);
+
+                    const separatorIndex = inviteCode.indexOf('.');
+                    const projectId = separatorIndex > 0 ? inviteCode.slice(0, separatorIndex) : '';
+                    const inviteId = separatorIndex > 0 ? inviteCode.slice(separatorIndex + 1) : '';
+                    if (!projectId || !inviteId) {
+                        window.history.replaceState({}, document.title, window.location.pathname);
+                        setDialog({ type: 'alert', title: '邀請連結無效', message: '邀請連結格式錯誤。' });
+                        return;
+                    }
+
+                    try {
+                        const inviteSnap = await getDoc(inviteRefFor(projectId, inviteId));
+                        if (!inviteSnap.exists() || inviteSnap.data().status !== 'active') throw new Error('邀請連結已失效或已被撤銷。');
+
+                        let existingMembership = null;
+                        try {
+                            const memberSnap = await getDoc(memberRefFor(projectId, user.uid));
+                            if (memberSnap.exists()) existingMembership = memberSnap.data();
+                        } catch (membershipError) {
+                            if (membershipError.code !== 'permission-denied') throw membershipError;
+                        }
+
+                        const joinedAt = new Date().toISOString();
+                        const batch = writeBatch(db);
+                        if (!existingMembership) {
+                            batch.set(memberRefFor(projectId, user.uid), {
+                                role: 'editor',
+                                inviteId,
+                                joinedAt,
+                                displayName: user.displayName || '',
+                                email: user.email || ''
+                            });
+                        }
+                        batch.set(userProjectRefFor(user.uid, projectId), {
+                            role: existingMembership?.role || 'editor',
+                            joinedAt: existingMembership?.joinedAt || joinedAt
+                        }, { merge: true });
+                        await batch.commit();
+
+                        const projectSnap = await getDoc(projectRefFor(projectId));
+                        if (!projectSnap.exists()) throw new Error('找不到這個專案，可能已被刪除。');
+                        const cloudData = { id: projectSnap.id, ...projectSnap.data(), currentUserRole: existingMembership?.role || 'editor' };
+                        setCurrentProjectId(projectId);
+                        setActiveProjectData(cloudData);
+                        setView('activeProject');
+                        setDialog({ type: 'alert', title: '已加入共編', message: `「${cloudData.name}」已加入你的專案清單。之後換裝置登入同一個 Google 帳號也找得到。` });
+                    } catch (error) {
+                        console.error('Join project error:', error);
+                        setDialog({ type: 'alert', title: '無法加入專案', message: error.message || '請確認邀請連結是否有效。' });
+                    } finally {
+                        window.history.replaceState({}, document.title, window.location.pathname);
+                    }
                 };
-                
                 processJoin();
             }, [user]);
 
             useEffect(() => {
-                localStorage.setItem('splitEasy_myProjects', JSON.stringify(projects));
-            }, [projects]);
-
-            useEffect(() => {
-                if (!user || !currentProjectId || view !== 'activeProject') {
-                    if (view === 'projectList' && !showSplash && !new URLSearchParams(window.location.search).get('invite') && !new URLSearchParams(window.location.search).get('join')) {
-                        setTimeout(() => setShowSplash(false), 800);
-                    }
-                    return;
-                }
-
-                const projectRef = doc(db, 'artifacts', FIREBASE_APP_ID, 'public', 'data', 'projects', currentProjectId);
-                
-                const unsubscribe = onSnapshot(projectRef, (snapshot) => {
-                    if (snapshot.exists()) {
-                        const cloudData = { id: snapshot.id, ...snapshot.data() };
-                        setActiveProjectData(cloudData);
-                        setProjects(prev => prev.map(p => p.id === cloudData.id ? { ...p, name: cloudData.name, updatedAt: cloudData.updatedAt } : p));
-                        setTimeout(() => setShowSplash(false), 300);
-                    } else {
-                        setDialog({ type: 'alert', title: '專案已刪除', message: '這個共編專案已經被刪除了。' });
+                if (!user || !currentProjectId || view !== 'activeProject') return;
+                const unsubscribe = onSnapshot(projectRefFor(currentProjectId), snapshot => {
+                    if (!snapshot.exists()) {
+                        setDialog({ type: 'alert', title: '專案已刪除', message: '這個共編專案已被擁有者刪除。' });
+                        deleteDoc(userProjectRefFor(user.uid, currentProjectId)).catch(() => {});
+                        setProjects(prev => prev.filter(project => project.id !== currentProjectId));
+                        setActiveProjectData(null);
+                        setCurrentProjectId(null);
                         setView('projectList');
-                        setProjects(prev => prev.filter(p => p.id !== currentProjectId));
+                        return;
                     }
-                }, (error) => {
-                    console.error("Firestore error:", error);
-                    setShowSplash(false);
+                    const oldRole = activeProjectData?.currentUserRole || projects.find(project => project.id === currentProjectId)?.currentUserRole || (snapshot.data().ownerId === user.uid ? 'owner' : 'editor');
+                    const cloudData = { id: snapshot.id, ...snapshot.data(), currentUserRole: oldRole };
+                    setActiveProjectData(cloudData);
+                    setProjects(prev => prev.map(project => project.id === cloudData.id ? { ...cloudData, currentUserRole: project.currentUserRole || oldRole } : project));
+                }, error => {
+                    console.error('Project sync error:', error);
+                    setDialog({ type: 'alert', title: '共編中斷', message: '你可能已離開此專案，或目前網路連線不穩定。' });
                 });
-
                 return () => unsubscribe();
             }, [user, currentProjectId, view]);
 
             const showMessage = (opt) => setDialog({ type: 'alert', title: opt.title || '提示', message: opt.message });
 
             const createProject = async (type) => {
-                if (!user) return showMessage({ message: "尚未連線成功，請確認 Firebase 設定。" });
-                const newP = {
-                    id: Date.now().toString() + Math.floor(Math.random()*1000).toString(),
+                if (!user) return showMessage({ message: '請先使用 Google 帳號登入。' });
+                const now = new Date().toISOString();
+                const projectId = createInviteToken();
+                const newProject = {
+                    id: projectId,
+                    schemaVersion: DATA_SCHEMA_VERSION,
                     name: type === 'dining' ? '未命名聚餐' : '未命名旅遊',
                     type,
-                    updatedAt: new Date().toISOString(),
-                    data: type === 'dining' ? { title: '', date: new Date().toISOString().split('T')[0], people: [{ id: 1, name: '', payerId: 1 }, { id: 2, name: '', payerId: 2 }], totalBill: '', serviceChargeType: 'percent', serviceChargeValue: 10, splitMode: 'even', customAmounts: {}, diningItems: [], billPayerId: 1, invoiceMeta: null } : { name: '', days: 1, people: [{id: 1, name: '', payerId: 1}, {id: 2, name: '', payerId: 2}], expenses: [] }
+                    ownerId: user.uid,
+                    ownerName: user.displayName || '',
+                    createdAt: now,
+                    updatedAt: now,
+                    data: type === 'dining'
+                        ? { title: '', date: now.split('T')[0], people: [{ id: 1, name: '', payerId: 1 }, { id: 2, name: '', payerId: 2 }], totalBill: '', serviceChargeType: 'percent', serviceChargeValue: 10, splitMode: 'even', customAmounts: {}, diningItems: [], billPayerId: 1, invoiceMeta: null }
+                        : { name: '', days: 1, people: [{id: 1, name: '', payerId: 1}, {id: 2, name: '', payerId: 2}], expenses: [] }
                 };
-                
                 try {
-                    const projectRef = doc(db, 'artifacts', FIREBASE_APP_ID, 'public', 'data', 'projects', newP.id);
-                    const ownerRef = doc(db, 'artifacts', FIREBASE_APP_ID, 'public', 'data', 'projects', newP.id, 'members', user.uid);
-                    await setDoc(projectRef, { ...newP, ownerId: user.uid });
-                    await setDoc(ownerRef, { role: 'owner', joinedAt: new Date().toISOString() });
-                    setProjects(prev => [newP, ...prev]);
-                    setCurrentProjectId(newP.id);
-                    setActiveProjectData({ ...newP, ownerId: user.uid });
+                    const batch = writeBatch(db);
+                    batch.set(projectRefFor(projectId), newProject);
+                    batch.set(memberRefFor(projectId, user.uid), {
+                        role: 'owner',
+                        joinedAt: now,
+                        displayName: user.displayName || '',
+                        email: user.email || ''
+                    });
+                    batch.set(userProjectRefFor(user.uid, projectId), { role: 'owner', joinedAt: now });
+                    await batch.commit();
+                    const localProject = { ...newProject, currentUserRole: 'owner' };
+                    setProjects(prev => [localProject, ...prev.filter(project => project.id !== projectId)]);
+                    setCurrentProjectId(projectId);
+                    setActiveProjectData(localProject);
                     setView('activeProject');
-                } catch(e) { console.error(e); showMessage({ message: "建立失敗，請檢查網路" }); }
+                } catch (error) {
+                    console.error('Create project error:', error);
+                    showMessage({ title: '建立失敗', message: '尚未成功建立雲端專案，請檢查網路或 Firebase 權限設定。' });
+                }
             };
 
-            const handleDeleteProject = (id, e) => {
-                e.stopPropagation();
+            const removeOwnedProject = async project => {
+                const members = await getDocs(collection(db, 'apps', DATA_SPACE, 'projects', project.id, 'members'));
+                const invites = await getDocs(collection(db, 'apps', DATA_SPACE, 'projects', project.id, 'invites'));
+                if (members.size + invites.size > 450) throw new Error('專案成員或邀請資料過多，請由管理者協助刪除。');
+                const batch = writeBatch(db);
+                members.docs.forEach(memberDoc => batch.delete(memberDoc.ref));
+                invites.docs.forEach(inviteDoc => batch.delete(inviteDoc.ref));
+                batch.delete(projectRefFor(project.id));
+                batch.delete(userProjectRefFor(user.uid, project.id));
+                await batch.commit();
+            };
+
+            const handleRemoveProject = (project, event) => {
+                event.stopPropagation();
+                const isOwner = project.currentUserRole === 'owner' || project.ownerId === user?.uid;
                 setDialog({
                     type: 'confirm',
-                    title: '刪除專案',
-                    message: '確定要刪除這個專案嗎？\n此動作會同時刪除雲端資料，包廂內的所有人都將無法再看到。',
-                    confirmText: '永久刪除',
+                    title: isOwner ? '永久刪除專案' : '離開共編專案',
+                    message: isOwner
+                        ? '確定要永久刪除這個專案嗎？所有協作者都會失去存取權，且無法復原。'
+                        : '確定要從自己的清單移除並離開這個共編專案嗎？專案本身不會被刪除。',
+                    confirmText: isOwner ? '永久刪除' : '確認離開',
                     onConfirm: async () => {
                         if (!user) return;
                         try {
-                            await deleteDoc(doc(db, 'artifacts', FIREBASE_APP_ID, 'public', 'data', 'projects', id));
-                            setProjects(prev => prev.filter(p => p.id !== id));
-                            if (currentProjectId === id) setView('projectList');
-                        } catch(e) { console.error(e); }
+                            if (isOwner) {
+                                await removeOwnedProject(project);
+                            } else {
+                                const batch = writeBatch(db);
+                                batch.delete(memberRefFor(project.id, user.uid));
+                                batch.delete(userProjectRefFor(user.uid, project.id));
+                                await batch.commit();
+                            }
+                            setProjects(prev => prev.filter(item => item.id !== project.id));
+                        } catch (error) {
+                            console.error('Remove project error:', error);
+                            showMessage({ title: '操作失敗', message: error.message || '目前無法完成，請稍後再試。' });
+                        }
                     }
                 });
             };
 
             const updateCurrentData = (newData) => {
-                if (!activeProjectData) return;
-                
+                if (!activeProjectData || !currentProjectId) return;
                 const activityName = activeProjectData.type === 'dining' ? newData.title : newData.name;
                 const fallbackName = activeProjectData.type === 'dining' ? '未命名聚餐' : '未命名旅遊';
-                const updatedProj = { ...activeProjectData, data: newData, name: activityName?.trim() || fallbackName, updatedAt: new Date().toISOString() };
-                setActiveProjectData(updatedProj);
-                
+                const updatedProject = { ...activeProjectData, data: newData, name: activityName?.trim() || fallbackName, updatedAt: new Date().toISOString() };
+                setActiveProjectData(updatedProject);
+
                 if (debounceTimer.current) clearTimeout(debounceTimer.current);
                 debounceTimer.current = setTimeout(() => {
-                    if (auth.currentUser) {
-                        setDoc(doc(db, 'artifacts', FIREBASE_APP_ID, 'public', 'data', 'projects', currentProjectId), updatedProj)
-                        .catch(e => console.error("Sync error:", e));
-                    }
+                    if (!auth.currentUser) return;
+                    const { currentUserRole, ...cloudProject } = updatedProject;
+                    setDoc(projectRefFor(currentProjectId), cloudProject)
+                        .catch(error => {
+                            console.error('Sync error:', error);
+                            showMessage({ title: '同步失敗', message: '這次修改尚未同步，請保持頁面開啟並確認網路連線。' });
+                        });
                 }, 800);
             };
 
             const handleShareProject = async () => {
                 if (!user || !currentProjectId || !activeProjectData) return;
+                if (activeProjectData.ownerId !== user.uid) return showMessage({ title: '無法建立邀請', message: '只有專案擁有者可以建立共編連結。' });
                 try {
                     const inviteId = createInviteToken();
-                    const inviteRef = doc(db, 'artifacts', FIREBASE_APP_ID, 'public', 'data', 'projects', currentProjectId, 'invites', inviteId);
-                    await setDoc(inviteRef, { status: 'active', createdBy: user.uid, createdAt: new Date().toISOString(), role: 'editor' });
+                    await setDoc(inviteRefFor(currentProjectId, inviteId), {
+                        status: 'active',
+                        createdBy: user.uid,
+                        createdAt: new Date().toISOString(),
+                        role: 'editor'
+                    });
                     const shareUrl = `${window.location.origin}${window.location.pathname}?invite=${currentProjectId}.${inviteId}`;
-                    copyToClipboard(shareUrl);
-                    showMessage({ title: '安全邀請連結已複製', message: '請將連結貼給朋友。對方加入後會成為協作者；之後可在成員管理功能中撤銷此連結。' });
-                } catch(e) {
-                    console.error(e);
+                    setShareInvite({ url: shareUrl, projectName: activeProjectData.name });
+                } catch (error) {
+                    console.error('Create invite error:', error);
                     showMessage({ title: '建立邀請失敗', message: '請檢查網路或 Firebase 權限設定。' });
                 }
             };
 
-            if (showSplash) return <SplashScreen />;
+            const handleSignOut = () => {
+                setDialog({
+                    type: 'confirm',
+                    title: '登出 Split Easy',
+                    message: '專案仍會安全保存在雲端，下次登入同一個 Google 帳號即可找回。',
+                    confirmText: '確認登出',
+                    onConfirm: () => signOut(auth).catch(error => console.error('Sign out error:', error))
+                });
+            };
+
+            if (showSplash || !authReady) return <SplashScreen />;
+            if (!user) return <LoginScreen onLogin={handleGoogleLogin} isLoggingIn={isLoggingIn} error={authError} hasInvite={hasPendingInvite} />;
 
             return (
                 <div className="min-h-screen">
                     <DialogModal dialog={dialog} onClose={() => setDialog(null)} />
-                    
+                    <ShareInviteModal invite={shareInvite} onClose={() => setShareInvite(null)} />
                     <header className="bg-white shadow-sm sticky top-0 z-10 px-4 py-3 flex items-center justify-between">
                         {view === 'activeProject' ? (
-                            <button onClick={() => setView('projectList')} className="flex items-center gap-1 text-slate-500 font-bold"><i className="fa-solid fa-arrow-left"></i> 首頁</button>
+                            <button onClick={() => { setView('projectList'); setCurrentProjectId(null); setActiveProjectData(null); }} className="flex items-center gap-1 text-slate-500 font-bold"><i className="fa-solid fa-arrow-left"></i> 首頁</button>
                         ) : (
                             <div className="flex items-center gap-2 text-teal-600 font-bold text-lg"><i className="fa-solid fa-calculator"></i> Split Easy</div>
                         )}
-                        
-                        {view === 'activeProject' && activeProjectData && (
-                            <div className="flex items-center gap-3">
-                                <h1 className="font-bold text-base text-slate-800 truncate max-w-[120px]">{activeProjectData.name}</h1>
-                                {activeProjectData.ownerId === user?.uid ? <button onClick={handleShareProject} className="bg-teal-100 text-teal-700 px-3 py-1.5 rounded-full text-xs font-bold flex items-center gap-1 hover:bg-teal-200 transition"><i className="fa-solid fa-user-plus"></i> 邀請共編</button> : <span className="bg-slate-100 text-slate-500 px-3 py-1.5 rounded-full text-xs font-bold">協作者</span>}
+
+                        {view === 'activeProject' && activeProjectData ? (
+                            <div className="flex items-center gap-2">
+                                <h1 className="font-bold text-sm text-slate-800 truncate max-w-[105px]">{activeProjectData.name}</h1>
+                                {activeProjectData.ownerId === user.uid ? <button onClick={handleShareProject} className="bg-teal-100 text-teal-700 px-3 py-1.5 rounded-full text-xs font-bold flex items-center gap-1 hover:bg-teal-200 transition"><i className="fa-solid fa-user-plus"></i> 邀請共編</button> : <span className="bg-slate-100 text-slate-500 px-3 py-1.5 rounded-full text-xs font-bold">協作者</span>}
+                            </div>
+                        ) : (
+                            <div className="flex items-center gap-2">
+                                {user.photoURL ? <img src={user.photoURL} alt="Google 帳號頭像" className="w-8 h-8 rounded-full" referrerPolicy="no-referrer" /> : <div className="w-8 h-8 rounded-full bg-teal-100 text-teal-600 flex items-center justify-center"><i className="fa-solid fa-user"></i></div>}
+                                <span className="text-xs font-bold text-slate-600 max-w-[90px] truncate">{user.displayName || user.email}</span>
+                                <button onClick={handleSignOut} aria-label="登出" className="p-2 text-slate-400 hover:text-red-500"><i className="fa-solid fa-arrow-right-from-bracket"></i></button>
                             </div>
                         )}
                     </header>
-                    
+
                     <main className="max-w-md mx-auto min-h-[calc(100vh-60px)] relative bg-slate-50">
-                        {view === 'projectList' && <ProjectList projects={projects} onSelect={(id) => { setCurrentProjectId(id); setView('activeProject'); }} onCreate={() => setView('createProject')} onDelete={handleDeleteProject} />}
+                        {view === 'projectList' && <ProjectList projects={projects} isLoading={projectsLoading} onSelect={(id) => { const selected = projects.find(project => project.id === id); setCurrentProjectId(id); setActiveProjectData(selected || null); setView('activeProject'); }} onCreate={() => setView('createProject')} onRemove={handleRemoveProject} />}
                         {view === 'createProject' && <CreateProjectScreen onCancel={() => setView('projectList')} onCreate={createProject} showMessage={showMessage} />}
-                        
+                        {view === 'activeProject' && !activeProjectData && <div className="py-20 text-center text-slate-400"><i className="fa-solid fa-spinner fa-spin text-2xl"></i><p className="mt-3 text-sm">正在載入共編專案…</p></div>}
                         {view === 'activeProject' && activeProjectData?.type === 'travel' && <TravelMode projectData={activeProjectData.data} onUpdate={updateCurrentData} showMessage={showMessage} />}
                         {view === 'activeProject' && activeProjectData?.type === 'dining' && <DiningMode projectData={activeProjectData.data} onUpdate={updateCurrentData} showMessage={showMessage} />}
                     </main>
@@ -1196,5 +1451,4 @@
     </script>
 </body>
 </html>
-
 
