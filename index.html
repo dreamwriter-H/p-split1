@@ -26,7 +26,7 @@
 
     <script type="text/babel" data-type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, GoogleAuthProvider, browserLocalPersistence, setPersistence, signInWithRedirect, getRedirectResult, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getAuth, GoogleAuthProvider, browserLocalPersistence, setPersistence, signInWithPopup, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, collection, doc, setDoc, getDoc, getDocs, onSnapshot, deleteDoc, writeBatch } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         const { useState, useEffect, useRef } = React;
@@ -352,9 +352,9 @@
                     {error && <div className="mt-4 p-3 bg-red-50 text-red-600 rounded-xl text-sm text-left">{error}</div>}
                     <button onClick={onLogin} disabled={isLoggingIn} className="w-full mt-6 p-4 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 shadow-sm font-bold text-slate-700 flex items-center justify-center gap-3 disabled:opacity-60">
                         {isLoggingIn ? <i className="fa-solid fa-spinner fa-spin text-teal-600"></i> : <i className="fa-brands fa-google text-red-500"></i>}
-                        {isLoggingIn ? '正在前往 Google…' : '使用 Google 帳號登入'}
+                        {isLoggingIn ? '正在開啟 Google…' : '使用 Google 帳號登入'}
                     </button>
-                    <p className="mt-3 text-xs text-teal-700 bg-teal-50 rounded-xl p-3"><i className="fa-solid fa-arrow-up-right-from-square mr-2"></i>將開啟 Google 安全登入頁，完成後會自動回到 Split Easy。</p>
+                    <p className="mt-3 text-xs text-teal-700 bg-teal-50 rounded-xl p-3"><i className="fa-solid fa-window-restore mr-2"></i>將開啟 Google 安全登入視窗；若視窗未出現，請改用外部 Chrome／Safari。</p>
                     <p className="mt-5 text-xs text-slate-400 leading-relaxed">Google 登入只用來辨認「哪些專案屬於你」。我們不會取得你的 Google 密碼。</p>
                 </div>
             </div>
@@ -1095,17 +1095,9 @@
             useEffect(() => {
                 let mounted = true;
                 setPersistence(auth, browserLocalPersistence)
-                    .then(() => getRedirectResult(auth))
                     .catch(error => {
-                        console.error('Redirect login error:', error);
-                        if (!mounted) return;
-                        if (error.code === 'auth/unauthorized-domain') {
-                            setAuthError('目前網址尚未加入 Firebase 授權網域，請由管理者完成設定後再試。');
-                        } else if (error.code === 'auth/operation-not-allowed') {
-                            setAuthError('Firebase 尚未啟用 Google 登入，請由管理者先開啟。');
-                        } else {
-                            setAuthError('整頁登入沒有完成，請再試一次或改用外部 Chrome／Safari。');
-                        }
+                        console.error('Auth persistence error:', error);
+                        if (mounted) setAuthError('這個瀏覽器無法保存登入狀態，請改用外部 Chrome／Safari。');
                     });
                 const unsubscribe = onAuthStateChanged(auth, nextUser => {
                     if (!mounted) return;
@@ -1143,19 +1135,27 @@
             const handleGoogleLogin = async () => {
                 setIsLoggingIn(true);
                 setAuthError('');
+                const popupTimer = window.setTimeout(() => {
+                    setIsLoggingIn(false);
+                    setAuthError('沒有看到 Google 登入視窗嗎？這個 App 內建瀏覽器可能會攔截彈出視窗，請將目前網址改用外部 Chrome／Safari 開啟。');
+                }, 7000);
                 try {
                     const provider = new GoogleAuthProvider();
                     provider.setCustomParameters({ prompt: 'select_account' });
-                    await signInWithRedirect(auth, provider);
+                    await signInWithPopup(auth, provider);
                 } catch (error) {
                     console.error('Google login error:', error);
                     if (error.code === 'auth/unauthorized-domain') {
                         setAuthError('目前網址尚未加入 Firebase 授權網域，請由管理者完成設定後再試。');
                     } else if (error.code === 'auth/operation-not-allowed') {
                         setAuthError('Firebase 尚未啟用 Google 登入，請由管理者先開啟。');
+                    } else if (['auth/popup-blocked', 'auth/popup-closed-by-user', 'auth/cancelled-popup-request'].includes(error.code)) {
+                        setAuthError('Google 登入視窗被瀏覽器攔截或關閉，請允許彈出式視窗，或改用外部 Chrome／Safari 開啟。');
                     } else {
-                        setAuthError('無法開啟 Google 登入頁，請改用外部 Chrome／Safari 再試。');
+                        setAuthError('Google 登入失敗，請確認網路後再試；若正在 App 內建瀏覽器，請改用外部 Chrome／Safari。');
                     }
+                } finally {
+                    window.clearTimeout(popupTimer);
                     setIsLoggingIn(false);
                 }
             };
