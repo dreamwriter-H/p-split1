@@ -93,7 +93,6 @@
 - 操作回饋：顯示辨識進度與左右 QR 狀態；若缺少其中一碼，才提供單一 QR 特寫補拍。
 - 介面簡化：移除難以理解的「手動貼上 QR 文字」欄位。
 - 測試：臺灣發票 UTF-8、Base64 解析測試，以及完整長版發票雙 QR 圖像辨識測試均通過。
-- 部署：待發布至 `https://dreamwriter-h.github.io/p-split1/`。
+- 部署：已發布至 `https://dreamwriter-h.github.io/p-split1/`；掃描元件 commit 為 `b1084be`，應用程式 commit 為 `895eac5`。
 - 保留：v1.0.0 至 v1.3.0 均未被修改。
-
 
