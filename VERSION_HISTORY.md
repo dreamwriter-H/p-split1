@@ -96,3 +96,17 @@
 - 部署：已發布至 `https://dreamwriter-h.github.io/p-split1/`；掃描元件 commit 為 `b1084be`，應用程式 commit 為 `895eac5`。
 - 保留：v1.0.0 至 v1.3.0 均未被修改。
 
+## v2.0.0-google-project-index — 2026-09-14
+
+- 狀態：完成程式與安全規則第一輪，等待 Firebase 後台登入後進行正式設定、雙帳號驗證與部署。
+- 版本位置：`versions/v2.0.0-google-project-index/`
+- 身分升級：停用 App 的匿名登入流程，改以 Google 帳號作為跨瀏覽器及跨裝置的固定身分；舊匿名登入會自動登出。
+- 首頁升級：正式專案目錄改存於 `users/{uid}/projects`；首頁只顯示本人建立與朋友分享的專案，不再以各瀏覽器的 `localStorage` 清單為準。
+- 單一資料：正式專案改存於 `apps/spliteasy-v2/projects/{projectId}`，所有成員共同讀寫同一份資料，不會因分享連結或換裝置建立分岔房間。
+- 角色權限：owner 才能產生邀請與永久刪除專案；editor 可以共編或自行離開，但不能刪除所有人的資料。
+- 手機分享修正：邀請建立後顯示完整網址，提供 Clipboard API、舊瀏覽器相容複製及手機系統分享；不再因自動複製失敗而讓使用者看不到連結。
+- 安全規則：只允許 Google 登入、專案成員讀寫及本人讀取個人索引；v1 `artifacts/**` 路徑全面拒絕新讀寫。
+- 裝置清理：每台裝置第一次開啟 v2 時，自動移除舊 `splitEasy_myProjects` 本機清單與 API Key 殘留。
+- 遷移文件：新增 `MIGRATION_CHECKLIST.md`，明定先驗證 v2、再盤點並遞迴清除 v1 Firestore 資料及匿名 Auth 帳號。
+- 保留：v1.0.0 至 v1.4.0 所有版本均未被修改。
+
