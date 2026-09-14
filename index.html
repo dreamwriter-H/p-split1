@@ -1098,7 +1098,14 @@
                     .then(() => getRedirectResult(auth))
                     .catch(error => {
                         console.error('Redirect login error:', error);
-                        if (mounted) setAuthError('整頁登入沒有完成，請再試一次或改用外部 Chrome／Safari。');
+                        if (!mounted) return;
+                        if (error.code === 'auth/unauthorized-domain') {
+                            setAuthError('目前網址尚未加入 Firebase 授權網域，請由管理者完成設定後再試。');
+                        } else if (error.code === 'auth/operation-not-allowed') {
+                            setAuthError('Firebase 尚未啟用 Google 登入，請由管理者先開啟。');
+                        } else {
+                            setAuthError('整頁登入沒有完成，請再試一次或改用外部 Chrome／Safari。');
+                        }
                     });
                 const unsubscribe = onAuthStateChanged(auth, nextUser => {
                     if (!mounted) return;
