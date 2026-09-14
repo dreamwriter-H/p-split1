@@ -26,7 +26,7 @@
 
     <script type="text/babel" data-type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, GoogleAuthProvider, browserLocalPersistence, setPersistence, signInWithPopup, signInWithRedirect, getRedirectResult, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getAuth, GoogleAuthProvider, browserLocalPersistence, setPersistence, signInWithRedirect, getRedirectResult, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, collection, doc, setDoc, getDoc, getDocs, onSnapshot, deleteDoc, writeBatch } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         const { useState, useEffect, useRef } = React;
@@ -340,7 +340,7 @@
             </div>
         );
 
-        const LoginScreen = ({ onLogin, onRedirectLogin, isLoggingIn, error, hasInvite }) => (
+        const LoginScreen = ({ onLogin, isLoggingIn, error, hasInvite }) => (
             <div className="min-h-screen bg-gradient-to-b from-teal-500 to-teal-700 px-6 py-10 flex items-center justify-center">
                 <div className="w-full max-w-sm bg-white rounded-3xl shadow-2xl p-7 text-center">
                     <div className="w-20 h-20 mx-auto bg-teal-50 rounded-3xl flex items-center justify-center mb-5">
@@ -352,11 +352,9 @@
                     {error && <div className="mt-4 p-3 bg-red-50 text-red-600 rounded-xl text-sm text-left">{error}</div>}
                     <button onClick={onLogin} disabled={isLoggingIn} className="w-full mt-6 p-4 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 shadow-sm font-bold text-slate-700 flex items-center justify-center gap-3 disabled:opacity-60">
                         {isLoggingIn ? <i className="fa-solid fa-spinner fa-spin text-teal-600"></i> : <i className="fa-brands fa-google text-red-500"></i>}
-                        {isLoggingIn ? '正在登入…' : '使用 Google 帳號登入'}
+                        {isLoggingIn ? '正在前往 Google…' : '使用 Google 帳號登入'}
                     </button>
-                    <button onClick={onRedirectLogin} disabled={isLoggingIn} className="w-full mt-3 p-3 rounded-xl bg-teal-50 text-teal-700 font-bold text-sm disabled:opacity-60">
-                        <i className="fa-solid fa-arrow-up-right-from-square mr-2"></i>登入視窗沒出現？改用整頁登入
-                    </button>
+                    <p className="mt-3 text-xs text-teal-700 bg-teal-50 rounded-xl p-3"><i className="fa-solid fa-arrow-up-right-from-square mr-2"></i>將開啟 Google 安全登入頁，完成後會自動回到 Split Easy。</p>
                     <p className="mt-5 text-xs text-slate-400 leading-relaxed">Google 登入只用來辨認「哪些專案屬於你」。我們不會取得你的 Google 密碼。</p>
                 </div>
             </div>
@@ -1141,33 +1139,16 @@
                 try {
                     const provider = new GoogleAuthProvider();
                     provider.setCustomParameters({ prompt: 'select_account' });
-                    await signInWithPopup(auth, provider);
+                    await signInWithRedirect(auth, provider);
                 } catch (error) {
                     console.error('Google login error:', error);
                     if (error.code === 'auth/unauthorized-domain') {
                         setAuthError('目前網址尚未加入 Firebase 授權網域，請由管理者完成設定後再試。');
                     } else if (error.code === 'auth/operation-not-allowed') {
                         setAuthError('Firebase 尚未啟用 Google 登入，請由管理者先開啟。');
-                    } else if (error.code === 'auth/popup-closed-by-user') {
-                        setAuthError('這個瀏覽器關閉了 Google 彈出視窗，請改用下方的「整頁登入」。');
                     } else {
-                        setAuthError('登入失敗，請確認網路後再試一次。');
+                        setAuthError('無法開啟 Google 登入頁，請改用外部 Chrome／Safari 再試。');
                     }
-                } finally {
-                    setIsLoggingIn(false);
-                }
-            };
-
-            const handleGoogleRedirectLogin = async () => {
-                setIsLoggingIn(true);
-                setAuthError('');
-                try {
-                    const provider = new GoogleAuthProvider();
-                    provider.setCustomParameters({ prompt: 'select_account' });
-                    await signInWithRedirect(auth, provider);
-                } catch (error) {
-                    console.error('Google redirect login error:', error);
-                    setAuthError('無法開啟整頁登入，請改用外部 Chrome／Safari 再試。');
                     setIsLoggingIn(false);
                 }
             };
@@ -1432,7 +1413,7 @@
             };
 
             if (showSplash || !authReady) return <SplashScreen />;
-            if (!user) return <LoginScreen onLogin={handleGoogleLogin} onRedirectLogin={handleGoogleRedirectLogin} isLoggingIn={isLoggingIn} error={authError} hasInvite={hasPendingInvite} />;
+            if (!user) return <LoginScreen onLogin={handleGoogleLogin} isLoggingIn={isLoggingIn} error={authError} hasInvite={hasPendingInvite} />;
 
             return (
                 <div className="min-h-screen">
