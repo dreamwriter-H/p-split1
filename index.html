@@ -27,7 +27,7 @@
     <script type="text/babel" data-type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, GoogleAuthProvider, browserLocalPersistence, setPersistence, signInWithPopup, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, collection, doc, setDoc, getDoc, getDocs, onSnapshot, deleteDoc, writeBatch } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getFirestore, collection, doc, setDoc, getDoc, getDocs, onSnapshot, deleteDoc, writeBatch, runTransaction } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         const { useState, useEffect, useRef } = React;
 
@@ -50,6 +50,121 @@
         const memberRefFor = (projectId, uid) => doc(db, 'apps', DATA_SPACE, 'projects', projectId, 'members', uid);
         const inviteRefFor = (projectId, inviteId) => doc(db, 'apps', DATA_SPACE, 'projects', projectId, 'invites', inviteId);
         const userProjectRefFor = (uid, projectId) => doc(db, 'users', uid, 'projects', projectId);
+
+        // 共編時只合併實際變動的欄位；避免兩台裝置用舊的整份資料互相覆蓋。
+        const COLLAB_ENTITY_ARRAY_KEYS = new Set(['people', 'diningItems', 'expenses']);
+        const COLLAB_MAP_KEYS = new Set(['customAmounts']);
+        const cloneDataValue = (value) => value === undefined ? undefined : JSON.parse(JSON.stringify(value));
+        const dataValuesEqual = (left, right) => JSON.stringify(left) === JSON.stringify(right);
+        const hasOwn = (value, key) => Object.prototype.hasOwnProperty.call(value || {}, key);
+        const entityKey = (value) => String(value?.id);
+
+        const buildDataOperations = (baseData = {}, nextData = {}) => {
+            const operations = [];
+            const keys = new Set([...Object.keys(baseData || {}), ...Object.keys(nextData || {})]);
+
+            keys.forEach(key => {
+                const baseValue = baseData?.[key];
+                const nextValue = nextData?.[key];
+                if (dataValuesEqual(baseValue, nextValue)) return;
+
+                if (COLLAB_ENTITY_ARRAY_KEYS.has(key) && Array.isArray(baseValue) && Array.isArray(nextValue)) {
+                    const baseMap = new Map(baseValue.map(item => [entityKey(item), item]));
+                    const nextMap = new Map(nextValue.map(item => [entityKey(item), item]));
+
+                    baseMap.forEach((item, id) => {
+                        if (!nextMap.has(id)) operations.push({ type: 'entity-delete', key, id });
+                    });
+
+                    nextMap.forEach((item, id) => {
+                        const baseItem = baseMap.get(id);
+                        if (!baseItem) {
+                            operations.push({ type: 'entity-upsert', key, id, value: cloneDataValue(item) });
+                            return;
+                        }
+                        const itemFields = new Set([...Object.keys(baseItem), ...Object.keys(item)]);
+                        itemFields.delete('id');
+                        itemFields.forEach(field => {
+                            if (dataValuesEqual(baseItem[field], item[field])) return;
+                            operations.push({
+                                type: 'entity-field',
+                                key,
+                                id,
+                                field,
+                                remove: !hasOwn(item, field),
+                                value: cloneDataValue(item[field])
+                            });
+                        });
+                    });
+                    return;
+                }
+
+                if (COLLAB_MAP_KEYS.has(key) && baseValue && nextValue && typeof baseValue === 'object' && typeof nextValue === 'object' && !Array.isArray(baseValue) && !Array.isArray(nextValue)) {
+                    const mapFields = new Set([...Object.keys(baseValue), ...Object.keys(nextValue)]);
+                    mapFields.forEach(field => {
+                        if (dataValuesEqual(baseValue[field], nextValue[field])) return;
+                        operations.push({
+                            type: 'map-field',
+                            key,
+                            field,
+                            remove: !hasOwn(nextValue, field),
+                            value: cloneDataValue(nextValue[field])
+                        });
+                    });
+                    return;
+                }
+
+                operations.push({
+                    type: 'data-field',
+                    key,
+                    remove: !hasOwn(nextData, key),
+                    value: cloneDataValue(nextValue)
+                });
+            });
+
+            return operations;
+        };
+
+        const applyDataOperations = (sourceData = {}, operations = []) => {
+            const result = cloneDataValue(sourceData) || {};
+            operations.forEach(operation => {
+                if (operation.type === 'data-field') {
+                    if (operation.remove) delete result[operation.key];
+                    else result[operation.key] = cloneDataValue(operation.value);
+                    return;
+                }
+
+                if (operation.type === 'map-field') {
+                    const mapValue = { ...(result[operation.key] || {}) };
+                    if (operation.remove) delete mapValue[operation.field];
+                    else mapValue[operation.field] = cloneDataValue(operation.value);
+                    result[operation.key] = mapValue;
+                    return;
+                }
+
+                const entities = Array.isArray(result[operation.key]) ? [...result[operation.key]] : [];
+                const index = entities.findIndex(item => entityKey(item) === operation.id);
+                if (operation.type === 'entity-delete') {
+                    if (index >= 0) entities.splice(index, 1);
+                } else if (operation.type === 'entity-upsert') {
+                    if (index >= 0) entities[index] = { ...entities[index], ...cloneDataValue(operation.value) };
+                    else entities.push(cloneDataValue(operation.value));
+                } else if (operation.type === 'entity-field') {
+                    const entity = index >= 0 ? { ...entities[index] } : { id: operation.id };
+                    if (operation.remove) delete entity[operation.field];
+                    else entity[operation.field] = cloneDataValue(operation.value);
+                    if (index >= 0) entities[index] = entity;
+                    else entities.push(entity);
+                }
+                result[operation.key] = entities;
+            });
+            return result;
+        };
+
+        const getProjectDisplayName = (type, data) => {
+            const activityName = type === 'dining' ? data?.title : data?.name;
+            return activityName?.trim() || (type === 'dining' ? '未命名聚餐' : '未命名旅遊');
+        };
 
         // v2 起首頁以雲端成員索引為準。每台裝置第一次開啟新版時，自動移除 v1 的本機專案清單。
         try {
@@ -590,15 +705,34 @@
             const [showInvoiceScanner, setShowInvoiceScanner] = useState(false);
             const withDiningDefaults = (source) => ({
                 ...source,
-                customAmounts: source.customAmounts || {},
-                diningItems: source.diningItems || [],
+                people: (source.people || []).map(person => ({ ...person })),
+                customAmounts: { ...(source.customAmounts || {}) },
+                diningItems: (source.diningItems || []).map(item => ({ ...item, participantIds: [...(item.participantIds || [])] })),
                 billPayerId: source.billPayerId || source.people?.[0]?.id || null,
                 invoiceMeta: source.invoiceMeta || null
             });
             const [data, setData] = useState(() => withDiningDefaults(projectData));
+            const [compositionRevision, setCompositionRevision] = useState(0);
+            const isComposingRef = useRef(false);
+            const syncBaseRef = useRef(withDiningDefaults(projectData));
 
-            useEffect(() => { setData(withDiningDefaults(projectData)); }, [projectData]);
-            useEffect(() => { if (JSON.stringify(data) !== JSON.stringify(projectData)) onUpdate(data); }, [data]);
+            useEffect(() => {
+                if (isComposingRef.current) return;
+                const normalized = withDiningDefaults(projectData);
+                syncBaseRef.current = normalized;
+                setData(normalized);
+            }, [projectData]);
+            useEffect(() => {
+                if (isComposingRef.current) return;
+                const normalizedProjectData = withDiningDefaults(projectData);
+                if (!dataValuesEqual(data, normalizedProjectData)) onUpdate(data, syncBaseRef.current);
+            }, [data, compositionRevision]);
+
+            const beginTextComposition = () => { isComposingRef.current = true; };
+            const finishTextComposition = () => {
+                isComposingRef.current = false;
+                setCompositionRevision(revision => revision + 1);
+            };
 
             const updateData = (key, value) => setData(prev => ({ ...prev, [key]: value }));
             const addPerson = () => { setData(prev => ({...prev, people: [...prev.people, { id: Date.now(), name: '' }] })); };
@@ -723,7 +857,7 @@
                         <div className="px-6 animate-fade-in">
                             <h2 className="text-2xl font-bold mb-6">這次聚餐是...</h2>
                             <div className="space-y-4">
-                                <div><label className="block text-sm font-medium text-slate-500 mb-1">聚餐名稱</label><input type="text" placeholder="例如：慶祝小明升職" className="w-full p-4 rounded-xl bg-white border border-slate-200 outline-none" value={data.title} onChange={e => updateData('title', e.target.value)} /></div>
+                                <div><label className="block text-sm font-medium text-slate-500 mb-1">聚餐名稱</label><input type="text" placeholder="例如：慶祝小明升職" className="w-full p-4 rounded-xl bg-white border border-slate-200 outline-none" value={data.title} onCompositionStart={beginTextComposition} onCompositionEnd={e => { updateData('title', e.currentTarget.value); finishTextComposition(); }} onChange={e => updateData('title', e.target.value)} /></div>
                                 <div><label className="block text-sm font-medium text-slate-500 mb-1">日期</label><input type="date" className="w-full p-4 rounded-xl bg-white border border-slate-200 outline-none" value={data.date} onChange={e => updateData('date', e.target.value)} /></div>
                             </div>
                             <button onClick={() => setStep(2)} className="w-full mt-8 bg-orange-500 text-white p-4 rounded-xl font-bold shadow-lg">下一步</button>
@@ -736,7 +870,7 @@
                                 {data.people.map((p, idx) => (
                                     <div key={p.id} className="flex gap-2 items-center">
                                         <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-lg">{idx + 1}</div>
-                                        <input type="text" placeholder={getDisplayName(p, idx)} className="flex-1 p-3 rounded-xl bg-white border border-slate-200 outline-none" value={p.name} onChange={e => updatePersonName(p.id, e.target.value)} />
+                                        <input type="text" placeholder={getDisplayName(p, idx)} className="flex-1 p-3 rounded-xl bg-white border border-slate-200 outline-none" value={p.name} onCompositionStart={beginTextComposition} onCompositionEnd={e => { updatePersonName(p.id, e.currentTarget.value); finishTextComposition(); }} onChange={e => updatePersonName(p.id, e.target.value)} />
                                         {data.people.length > 1 && <button onClick={() => removePerson(p.id)} className="p-3 text-slate-400 hover:text-red-500"><i className="fa-solid fa-trash"></i></button>}
                                     </div>
                                 ))}
@@ -792,7 +926,7 @@
                                             return (
                                                 <div key={item.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-4 space-y-3">
                                                     <div className="flex items-center justify-between"><span className="text-xs font-bold text-orange-600">品項 {itemIndex + 1}・{shareLabel}</span><button onClick={() => deleteDiningItem(item.id)} className="text-slate-300 hover:text-red-500 p-1" aria-label={`刪除品項 ${itemIndex + 1}`}><i className="fa-solid fa-trash"></i></button></div>
-                                                    <div className="grid grid-cols-[1fr_110px] gap-2"><input type="text" placeholder="例如：包廂費、酒水、主餐" className="w-full p-3 rounded-xl border border-slate-200 bg-white" value={item.name} onChange={e => updateDiningItem(item.id, { name: e.target.value })} /><div className="relative"><span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">$</span><input type="number" placeholder="金額" className="w-full pl-7 pr-2 py-3 rounded-xl border border-slate-200 bg-white text-right" value={item.amount} onChange={e => updateDiningItem(item.id, { amount: e.target.value })} /></div></div>
+                                                    <div className="grid grid-cols-[1fr_110px] gap-2"><input type="text" placeholder="例如：包廂費、酒水、主餐" className="w-full p-3 rounded-xl border border-slate-200 bg-white" value={item.name} onCompositionStart={beginTextComposition} onCompositionEnd={e => { updateDiningItem(item.id, { name: e.currentTarget.value }); finishTextComposition(); }} onChange={e => updateDiningItem(item.id, { name: e.target.value })} /><div className="relative"><span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">$</span><input type="number" placeholder="金額" className="w-full pl-7 pr-2 py-3 rounded-xl border border-slate-200 bg-white text-right" value={item.amount} onChange={e => updateDiningItem(item.id, { amount: e.target.value })} /></div></div>
                                                     <div className="flex items-center justify-between"><span className="text-xs font-bold text-slate-500">誰要分攤？</span><button type="button" onClick={() => toggleAllItemParticipants(item)} aria-pressed={selectedCount === data.people.length} aria-label={selectedCount === data.people.length ? '取消全員分攤' : '選取全員分攤'} className={`text-xs font-bold px-3 py-1.5 rounded-full border transition ${selectedCount === data.people.length ? 'bg-teal-100 text-teal-700 border-teal-200' : 'bg-white text-teal-600 border-teal-200'}`}><i className={`fa-solid ${selectedCount === data.people.length ? 'fa-check-double' : 'fa-users'} mr-1`}></i>全員</button></div>
                                                     <div className="flex flex-wrap gap-2">{data.people.map((person, index) => { const selected = (item.participantIds || []).includes(person.id); return <button key={person.id} onClick={() => toggleItemParticipant(item, person.id)} className={`px-3 py-2 rounded-full text-sm border transition ${selected ? 'bg-teal-100 text-teal-700 border-teal-200 font-bold' : 'bg-white text-slate-400 border-slate-200'}`}>{getDisplayName(person, index)} {selected && <i className="fa-solid fa-check ml-1 text-xs"></i>}</button>; })}</div>
                                                 </div>
@@ -860,7 +994,7 @@
                 const highestExpenseDay = expenses.reduce((highest, expense) => Math.max(highest, expense.day), 1);
                 return {
                     ...(source || {}),
-                    people: source?.people || [],
+                    people: (source?.people || []).map(person => ({ ...person })),
                     expenses,
                     days: Math.max(1, parseInt(source?.days, 10) || 1, highestExpenseDay)
                 };
@@ -871,13 +1005,28 @@
             const [trip, setTrip] = useState(() => normalizeTravelData(projectData));
             const [showWalletSetup, setShowWalletSetup] = useState(false);
             const [activeDay, setActiveDay] = useState(1);
+            const [compositionRevision, setCompositionRevision] = useState(0);
+            const isComposingRef = useRef(false);
+            const syncBaseRef = useRef(normalizeTravelData(projectData));
 
             useEffect(() => {
+                if (isComposingRef.current) return;
                 const normalized = normalizeTravelData(projectData);
+                syncBaseRef.current = normalized;
                 setTrip(normalized);
                 setActiveDay(currentDay => Math.min(Math.max(1, currentDay), normalized.days));
             }, [projectData]);
-            useEffect(() => { if (JSON.stringify(trip) !== JSON.stringify(projectData)) onUpdate(trip); }, [trip]);
+            useEffect(() => {
+                if (isComposingRef.current) return;
+                const normalizedProjectData = normalizeTravelData(projectData);
+                if (!dataValuesEqual(trip, normalizedProjectData)) onUpdate(trip, syncBaseRef.current);
+            }, [trip, compositionRevision]);
+
+            const beginTextComposition = () => { isComposingRef.current = true; };
+            const finishTextComposition = () => {
+                isComposingRef.current = false;
+                setCompositionRevision(revision => revision + 1);
+            };
 
             const tripDayCount = Math.max(1, parseInt(trip.days, 10) || 1);
             const dayNumbers = Array.from({ length: tripDayCount }, (_, index) => index + 1);
@@ -922,8 +1071,8 @@
                     <div className="flex-1 overflow-y-auto bg-slate-50 no-scrollbar">
                         {tab === 'setup' && (
                             <div className="p-6 pb-24 space-y-4 bg-white m-4 rounded-2xl shadow-sm">
-                                <div><label className="block text-sm text-slate-500 mb-1">旅遊名稱</label><input className="w-full p-3 border rounded-xl bg-slate-50" value={trip.name} onChange={e => setTrip({...trip, name: e.target.value})} /></div>
-                                <div><label className="block text-sm text-slate-500 mb-2">成員</label><div className="space-y-2">{trip.people.map((p, idx) => (<div key={p.id} className="flex gap-2"><input className="flex-1 p-2 border rounded-lg" placeholder={getPersonNameHelper(p.id, trip.people)} value={p.name} onChange={e => { const np = [...trip.people]; np[idx].name = e.target.value; setTrip({...trip, people: np}); }} />{trip.people.length > 1 && <button onClick={() => removePerson(p.id)}><i className="fa-solid fa-trash text-slate-300"></i></button>}</div>))}<button onClick={addPerson} className="text-sm text-teal-600 font-bold">+ 新增成員</button></div></div>
+                                <div><label className="block text-sm text-slate-500 mb-1">旅遊名稱</label><input className="w-full p-3 border rounded-xl bg-slate-50" value={trip.name} onCompositionStart={beginTextComposition} onCompositionEnd={e => { setTrip(prev => ({ ...prev, name: e.currentTarget.value })); finishTextComposition(); }} onChange={e => setTrip(prev => ({ ...prev, name: e.target.value }))} /></div>
+                                <div><label className="block text-sm text-slate-500 mb-2">成員</label><div className="space-y-2">{trip.people.map((p, idx) => (<div key={p.id} className="flex gap-2"><input className="flex-1 p-2 border rounded-lg" placeholder={getPersonNameHelper(p.id, trip.people)} value={p.name} onCompositionStart={beginTextComposition} onCompositionEnd={e => { const value = e.currentTarget.value; setTrip(prev => ({ ...prev, people: prev.people.map(person => person.id === p.id ? { ...person, name: value } : person) })); finishTextComposition(); }} onChange={e => { const value = e.target.value; setTrip(prev => ({ ...prev, people: prev.people.map(person => person.id === p.id ? { ...person, name: value } : person) })); }} />{trip.people.length > 1 && <button onClick={() => removePerson(p.id)}><i className="fa-solid fa-trash text-slate-300"></i></button>}</div>))}<button onClick={addPerson} className="text-sm text-teal-600 font-bold">+ 新增成員</button></div></div>
                                 <div className="pt-4 border-t border-slate-100"><button onClick={() => setShowWalletSetup(true)} className="w-full py-3 bg-teal-50 text-teal-700 rounded-xl font-bold flex items-center justify-center gap-2 border border-teal-200 hover:bg-teal-100"><i className="fa-solid fa-wallet"></i> 設定共同錢包 (家庭/情侶)</button></div>
                             </div>
                         )}
@@ -1087,7 +1236,12 @@
             const [dialog, setDialog] = useState(null);
             const [shareInvite, setShareInvite] = useState(null);
             const debounceTimer = useRef(null);
+            const activeProjectRef = useRef(null);
+            const pendingProjectUpdateRef = useRef(null);
+            const syncInFlightRef = useRef(false);
             const processedInviteRef = useRef(false);
+
+            useEffect(() => { activeProjectRef.current = activeProjectData; }, [activeProjectData]);
 
             const params = new URLSearchParams(window.location.search);
             const hasPendingInvite = Boolean(params.get('invite') || params.get('join'));
@@ -1277,8 +1431,20 @@
                         setView('projectList');
                         return;
                     }
-                    const oldRole = activeProjectData?.currentUserRole || projects.find(project => project.id === currentProjectId)?.currentUserRole || (snapshot.data().ownerId === user.uid ? 'owner' : 'editor');
-                    const cloudData = { id: snapshot.id, ...snapshot.data(), currentUserRole: oldRole };
+                    const snapshotProject = snapshot.data();
+                    const oldRole = activeProjectRef.current?.currentUserRole || (snapshotProject.ownerId === user.uid ? 'owner' : 'editor');
+                    const pendingUpdate = pendingProjectUpdateRef.current?.projectId === currentProjectId ? pendingProjectUpdateRef.current : null;
+                    const displayData = pendingUpdate
+                        ? applyDataOperations(snapshotProject.data || {}, pendingUpdate.operations)
+                        : snapshotProject.data;
+                    const cloudData = {
+                        id: snapshot.id,
+                        ...snapshotProject,
+                        data: displayData,
+                        name: getProjectDisplayName(snapshotProject.type, displayData),
+                        currentUserRole: oldRole
+                    };
+                    activeProjectRef.current = cloudData;
                     setActiveProjectData(cloudData);
                     setProjects(prev => prev.map(project => project.id === cloudData.id ? { ...cloudData, currentUserRole: project.currentUserRole || oldRole } : project));
                 }, error => {
@@ -1371,23 +1537,97 @@
                 });
             };
 
-            const updateCurrentData = (newData) => {
-                if (!activeProjectData || !currentProjectId) return;
-                const activityName = activeProjectData.type === 'dining' ? newData.title : newData.name;
-                const fallbackName = activeProjectData.type === 'dining' ? '未命名聚餐' : '未命名旅遊';
-                const updatedProject = { ...activeProjectData, data: newData, name: activityName?.trim() || fallbackName, updatedAt: new Date().toISOString() };
+            const flushPendingProjectUpdate = async () => {
+                if (syncInFlightRef.current) return;
+                const pendingUpdate = pendingProjectUpdateRef.current;
+                const currentUser = auth.currentUser;
+                if (!pendingUpdate?.operations?.length || !currentUser) return;
+
+                const projectId = pendingUpdate.projectId;
+                const batchLength = pendingUpdate.operations.length;
+                const batchOperations = pendingUpdate.operations.slice(0, batchLength);
+                syncInFlightRef.current = true;
+                let syncFailed = false;
+
+                try {
+                    const committedProject = await runTransaction(db, async transaction => {
+                        const projectRef = projectRefFor(projectId);
+                        const snapshot = await transaction.get(projectRef);
+                        if (!snapshot.exists()) throw new Error('找不到共編專案，可能已被刪除。');
+
+                        const latestProject = snapshot.data();
+                        const mergedData = applyDataOperations(latestProject.data || {}, batchOperations);
+                        const nextProject = {
+                            ...latestProject,
+                            data: mergedData,
+                            name: getProjectDisplayName(latestProject.type, mergedData),
+                            updatedAt: new Date().toISOString(),
+                            lastUpdatedBy: currentUser.uid
+                        };
+                        transaction.set(projectRef, nextProject);
+                        return { id: snapshot.id, ...nextProject };
+                    });
+
+                    const currentPending = pendingProjectUpdateRef.current;
+                    let remainingOperations = [];
+                    if (currentPending?.projectId === projectId) {
+                        remainingOperations = currentPending.operations.slice(batchLength);
+                        pendingProjectUpdateRef.current = remainingOperations.length
+                            ? { ...currentPending, operations: remainingOperations }
+                            : null;
+                    }
+
+                    const displayData = applyDataOperations(committedProject.data || {}, remainingOperations);
+                    const displayProject = {
+                        ...committedProject,
+                        data: displayData,
+                        name: getProjectDisplayName(committedProject.type, displayData),
+                        currentUserRole: activeProjectRef.current?.currentUserRole || (committedProject.ownerId === currentUser.uid ? 'owner' : 'editor')
+                    };
+                    if (activeProjectRef.current?.id === projectId) {
+                        activeProjectRef.current = displayProject;
+                        setActiveProjectData(displayProject);
+                    }
+                    setProjects(prev => prev.map(project => project.id === projectId ? { ...displayProject, currentUserRole: project.currentUserRole || displayProject.currentUserRole } : project));
+                } catch (error) {
+                    syncFailed = true;
+                    console.error('Transaction sync error:', error);
+                    showMessage({ title: '同步失敗', message: '這次修改仍保留在畫面上，但尚未同步到雲端；請確認網路後再修改一次。' });
+                } finally {
+                    syncInFlightRef.current = false;
+                    if (!syncFailed && pendingProjectUpdateRef.current?.operations?.length) {
+                        if (debounceTimer.current) clearTimeout(debounceTimer.current);
+                        debounceTimer.current = setTimeout(flushPendingProjectUpdate, 250);
+                    }
+                }
+            };
+
+            const updateCurrentData = (newData, baseData) => {
+                const currentProject = activeProjectRef.current || activeProjectData;
+                if (!currentProject || !currentProjectId) return;
+
+                const operations = buildDataOperations(baseData || currentProject.data || {}, newData);
+                if (!operations.length) return;
+
+                const existingPending = pendingProjectUpdateRef.current;
+                const pendingOperations = existingPending?.projectId === currentProjectId
+                    ? [...existingPending.operations, ...operations]
+                    : operations;
+                pendingProjectUpdateRef.current = { projectId: currentProjectId, operations: pendingOperations };
+
+                const optimisticData = applyDataOperations(currentProject.data || {}, operations);
+                const updatedProject = {
+                    ...currentProject,
+                    data: optimisticData,
+                    name: getProjectDisplayName(currentProject.type, optimisticData),
+                    updatedAt: new Date().toISOString()
+                };
+                activeProjectRef.current = updatedProject;
                 setActiveProjectData(updatedProject);
+                setProjects(prev => prev.map(project => project.id === currentProjectId ? { ...updatedProject, currentUserRole: project.currentUserRole || updatedProject.currentUserRole } : project));
 
                 if (debounceTimer.current) clearTimeout(debounceTimer.current);
-                debounceTimer.current = setTimeout(() => {
-                    if (!auth.currentUser) return;
-                    const { currentUserRole, ...cloudProject } = updatedProject;
-                    setDoc(projectRefFor(currentProjectId), cloudProject)
-                        .catch(error => {
-                            console.error('Sync error:', error);
-                            showMessage({ title: '同步失敗', message: '這次修改尚未同步，請保持頁面開啟並確認網路連線。' });
-                        });
-                }, 800);
+                debounceTimer.current = setTimeout(flushPendingProjectUpdate, 800);
             };
 
             const handleShareProject = async () => {
@@ -1463,4 +1703,3 @@
     </script>
 </body>
 </html>
-
