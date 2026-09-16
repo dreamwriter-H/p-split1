@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head><meta charset="UTF-8"><title>海外收據解析測試</title></head>
+<body>
+    <h1>海外收據解析測試</h1>
+    <pre id="result">執行中…</pre>
+    <script src="./receipt-ocr.js"></script>
+    <script>
+        const tests = [
+            {
+                name: '英文美元總額排除小計與稅額',
+                text: 'CAFE MOON\nSubtotal $12.00\nTax $1.20\nGRAND TOTAL USD 13.20\n2026-09-10',
+                expect: { merchant: 'CAFE MOON', currency: 'USD', amount: 13.2, date: '2026-09-10' }
+            },
+            {
+                name: '日本收據',
+                text: '東京食堂\n2026年9月11日\n小計 ¥1,000\n合計金額 ¥1,100',
+                expect: { merchant: '東京食堂', currency: 'JPY', amount: 1100, date: '2026-09-11' }
+            },
+            {
+                name: '韓國收據',
+                text: '서울카페\n2026-09-12\n현금 25000\n총액 ₩25,000',
+                expect: { merchant: '서울카페', currency: 'KRW', amount: 25000, date: '2026-09-12' }
+            },
+            {
+                name: '沒有幣別時要求核對',
+                text: 'LOCAL MARKET\nTOTAL 42.50',
+                expect: { currency: 'USD', amount: 42.5, currencyAmbiguous: true }
+            }
+        ];
+        const failures = [];
+        const results = tests.map(test => {
+            const actual = SplitEasyReceiptOcr.parseText(test.text, { preferredCurrency: 'USD' });
+            const passed = Object.entries(test.expect).every(([key, value]) => actual[key] === value);
+            if (!passed) failures.push({ test: test.name, expect: test.expect, actual });
+            return `${passed ? '✅' : '❌'} ${test.name}`;
+        });
+        document.getElementById('result').textContent = `${results.join('\n')}\n\n${failures.length ? JSON.stringify(failures, null, 2) : '全部通過'}`;
+        if (failures.length) throw new Error(`${failures.length} 個測試失敗`);
+    </script>
+</body>
+</html>
+
