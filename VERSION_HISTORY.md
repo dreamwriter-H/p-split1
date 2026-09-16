@@ -132,3 +132,16 @@
 - 測試：七種本機衝突合併案例與瀏覽器載入皆通過，無新的執行錯誤；Safari＋另一裝置實際共編列為部署後驗收項目。
 - 部署範圍：已更新 v2 測試網址，部署 commit 為 `d7808ae`；正式首頁 v1.4.0、Firebase Rules 與既有資料均保持不變。
 - 保留：v2.0.1 與所有較早版本均未被修改。
+
+## v2.0.2-production-cutover — 2026-09-16
+
+- 狀態：v2.0.2 已完成正式上線與舊版資料清理；程式內容沿用 `versions/v2.0.2-collaboration-ime/`，未覆寫任何既有版本目錄。
+- 正式網址：`https://dreamwriter-h.github.io/p-split1/`
+- GitHub Pages：正式首頁 `index.html` 切換 commit 為 `8d649a6`；安全規則與遷移文件一併提交，最終發布 commit 為 `2078a4f`，Pages workflow 已成功完成。
+- Firestore Rules：正式部署只允許 Google 登入、專案成員依角色存取 v2 專案及本人索引；v1 `artifacts/**` 路徑全面拒絕讀寫。
+- Authentication：Anonymous 登入已停用；刪除 85 個舊匿名帳號，保留 2 個 Google 帳號，管理端複查匿名帳號為 0。
+- 舊版資料：依使用者指示遞迴刪除 `artifacts/spliteasy-2026/public/data/projects`，Firebase CLI 實際刪除 39 筆文件；此批雲端舊帳資料不可由 Firebase 直接復原。
+- 新版保護：管理端複查 v1 專案文件為 0；`apps/spliteasy-v2/projects` 仍保留 1 個專案 `3617abea-46e2-4350-9aef-3de45988e179`。
+- 正式站驗證：HTTP 200，確認使用 Google popup 登入、`spliteasy-v2` 資料空間、中文組字保護與 Firestore transaction；未再載入匿名登入程式。
+- 原始碼保留：v1.0.0 至 v2.0.2 的版本資料夾均未刪除；此次只清除 Firebase 舊資料及匿名身分，不是從零重寫 App。
+
