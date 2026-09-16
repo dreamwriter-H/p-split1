@@ -1711,16 +1711,24 @@
                     try {
                         const loaded = await Promise.all(indexSnapshot.docs.map(async indexDoc => {
                             const indexData = indexDoc.data();
-                            const cloudProject = await getDoc(projectRefFor(indexDoc.id));
-                            if (!cloudProject.exists()) {
-                                deleteDoc(indexDoc.ref).catch(() => {});
-                                return null;
+                            try {
+                                const cloudProject = await getDoc(projectRefFor(indexDoc.id));
+                                if (!cloudProject.exists()) {
+                                    deleteDoc(indexDoc.ref).catch(() => {});
+                                    return null;
+                                }
+                                return {
+                                    id: cloudProject.id,
+                                    ...cloudProject.data(),
+                                    currentUserRole: indexData.role || (cloudProject.data().ownerId === user.uid ? 'owner' : 'editor')
+                                };
+                            } catch (projectError) {
+                                if (projectError.code === 'permission-denied') {
+                                    deleteDoc(indexDoc.ref).catch(() => {});
+                                    return null;
+                                }
+                                throw projectError;
                             }
-                            return {
-                                id: cloudProject.id,
-                                ...cloudProject.data(),
-                                currentUserRole: indexData.role || (cloudProject.data().ownerId === user.uid ? 'owner' : 'editor')
-                            };
                         }));
                         const cleanProjects = loaded.filter(Boolean).sort((a, b) => new Date(b.updatedAt || 0) - new Date(a.updatedAt || 0));
                         setProjects(cleanProjects);
@@ -1838,7 +1846,16 @@
                     setProjects(prev => prev.map(project => project.id === cloudData.id ? { ...cloudData, currentUserRole: project.currentUserRole || oldRole } : project));
                 }, error => {
                     console.error('Project sync error:', error);
-                    setDialog({ type: 'alert', title: '共編中斷', message: '你可能已離開此專案，或目前網路連線不穩定。' });
+                    if (error.code === 'permission-denied') {
+                        deleteDoc(userProjectRefFor(user.uid, currentProjectId)).catch(() => {});
+                        setProjects(prev => prev.filter(project => project.id !== currentProjectId));
+                        setActiveProjectData(null);
+                        setCurrentProjectId(null);
+                        setView('projectList');
+                        setDialog({ type: 'alert', title: '共編權限已結束', message: '你已不在此專案的成員名單中，首頁殘留項目已自動移除。' });
+                    } else {
+                        setDialog({ type: 'alert', title: '共編中斷', message: '目前網路連線不穩定，請稍後再試。' });
+                    }
                 });
                 return () => unsubscribe();
             }, [user, currentProjectId, view]);
