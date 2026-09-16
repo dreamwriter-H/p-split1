@@ -1,0 +1,138 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isGoogleUser() {
+      return request.auth != null
+        && request.auth.token.firebase.sign_in_provider == 'google.com';
+    }
+
+    function projectPath(projectId) {
+      return /databases/$(database)/documents/apps/spliteasy-v2/projects/$(projectId);
+    }
+
+    function memberPath(projectId, uid) {
+      return /databases/$(database)/documents/apps/spliteasy-v2/projects/$(projectId)/members/$(uid);
+    }
+
+    function invitePath(projectId, inviteId) {
+      return /databases/$(database)/documents/apps/spliteasy-v2/projects/$(projectId)/invites/$(inviteId);
+    }
+
+    function userIndexPath(uid, projectId) {
+      return /databases/$(database)/documents/users/$(uid)/projects/$(projectId);
+    }
+
+    function isMember(projectId) {
+      return isGoogleUser()
+        && exists(memberPath(projectId, request.auth.uid));
+    }
+
+    function hasOwnIndex(projectId) {
+      return isGoogleUser()
+        && exists(userIndexPath(request.auth.uid, projectId));
+    }
+
+    function isOwner(projectId) {
+      return isGoogleUser()
+        && get(projectPath(projectId)).data.ownerId == request.auth.uid;
+    }
+
+    function isOwnerAfterWrite(projectId) {
+      return isGoogleUser()
+        && getAfter(projectPath(projectId)).data.ownerId == request.auth.uid;
+    }
+
+    function hasActiveInvite(projectId, inviteId) {
+      return isGoogleUser()
+        && exists(invitePath(projectId, inviteId))
+        && get(invitePath(projectId, inviteId)).data.status == 'active';
+    }
+
+    // v2 正式資料：一個專案只存一份，成員以 Google uid 判斷。
+    match /apps/spliteasy-v2/projects/{projectId} {
+      allow create: if isGoogleUser()
+        && request.resource.data.ownerId == request.auth.uid
+        && request.resource.data.schemaVersion == '2.0.0'
+        && request.resource.data.type in ['dining', 'travel']
+        && request.resource.data.keys().hasAll([
+          'id', 'name', 'type', 'ownerId', 'createdAt', 'updatedAt', 'data'
+        ]);
+
+      // 個人索引也能讀取，以便擁有者刪除後，其他人下次登入時清掉失效索引。
+      allow get: if isMember(projectId) || hasOwnIndex(projectId);
+      allow list: if false;
+
+      allow update: if isMember(projectId)
+        && request.resource.data.ownerId == resource.data.ownerId
+        && request.resource.data.type == resource.data.type
+        && request.resource.data.schemaVersion == resource.data.schemaVersion;
+
+      allow delete: if isOwner(projectId);
+
+      match /members/{memberId} {
+        allow get, list: if isMember(projectId) || hasOwnIndex(projectId);
+
+        allow create: if isGoogleUser()
+          && memberId == request.auth.uid
+          && request.resource.data.role in ['owner', 'editor']
+          && (
+            (
+              request.resource.data.role == 'owner'
+              && isOwnerAfterWrite(projectId)
+            )
+            ||
+            (
+              request.resource.data.role == 'editor'
+              && request.resource.data.keys().hasAll(['inviteId'])
+              && hasActiveInvite(projectId, request.resource.data.inviteId)
+            )
+          );
+
+        allow update: if isOwner(projectId);
+        allow delete: if isOwner(projectId)
+          || (isGoogleUser() && memberId == request.auth.uid);
+      }
+
+      match /invites/{inviteId} {
+        // 邀請碼本身是高強度隨機值；禁止列出，只允許持有完整網址的人讀取指定邀請。
+        allow get: if isGoogleUser();
+        allow list: if isOwner(projectId);
+        allow create: if isOwner(projectId)
+          && request.resource.data.createdBy == request.auth.uid;
+        allow update: if isOwner(projectId)
+          && request.resource.data.createdBy == resource.data.createdBy;
+        allow delete: if isOwner(projectId);
+      }
+    }
+
+    // 每位使用者只看得到自己的專案目錄。
+    match /users/{userId}/projects/{projectId} {
+      allow get, list: if isGoogleUser() && userId == request.auth.uid;
+
+      allow create: if isGoogleUser()
+        && userId == request.auth.uid
+        && request.resource.data.role in ['owner', 'editor']
+        && (
+          (
+            request.resource.data.role == 'owner'
+            && isOwnerAfterWrite(projectId)
+          )
+          ||
+          (
+            request.resource.data.role == 'editor'
+            && existsAfter(memberPath(projectId, request.auth.uid))
+          )
+        );
+
+      allow update, delete: if isGoogleUser()
+        && userId == request.auth.uid;
+    }
+
+    // v1 舊路徑全面停寫，避免舊分頁在清除後又把匿名資料寫回來。
+    match /artifacts/{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
+
