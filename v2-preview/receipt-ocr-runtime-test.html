@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>海外收據 OCR 執行測試</title>
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+    <script src="./receipt-ocr.js?v=2.1.0"></script>
+</head>
+<body>
+    <h1>海外收據 OCR 執行測試</h1>
+    <pre id="result">載入英文辨識字庫中…</pre>
+    <canvas id="receipt" width="1000" height="650" style="max-width:100%;border:1px solid #ddd"></canvas>
+    <script>
+        (async () => {
+            const output = document.getElementById('result');
+            const canvas = document.getElementById('receipt');
+            const context = canvas.getContext('2d');
+            context.fillStyle = '#fff';
+            context.fillRect(0, 0, canvas.width, canvas.height);
+            context.fillStyle = '#111';
+            context.font = 'bold 64px Arial';
+            context.fillText('MOON CAFE', 80, 120);
+            context.font = '48px Arial';
+            context.fillText('DATE 2026-09-10', 80, 230);
+            context.fillText('SUBTOTAL USD 12.00', 80, 340);
+            context.fillText('TAX USD 1.20', 80, 440);
+            context.font = 'bold 56px Arial';
+            context.fillText('GRAND TOTAL USD 13.20', 80, 560);
+            try {
+                const worker = await Tesseract.createWorker('eng', undefined, {
+                    logger: message => {
+                        if (message.status) output.textContent = `${message.status} ${message.progress ? Math.round(message.progress * 100) + '%' : ''}`;
+                    }
+                });
+                const result = await worker.recognize(canvas);
+                await worker.terminate();
+                const parsed = SplitEasyReceiptOcr.parseText(result.data.text, { preferredCurrency: 'USD' });
+                const passed = parsed.currency === 'USD' && parsed.amount === 13.2 && parsed.date === '2026-09-10';
+                output.textContent = `${passed ? 'PASS' : 'FAIL'}\n\nOCR:\n${result.data.text}\n解析：\n${JSON.stringify(parsed, null, 2)}`;
+                if (!passed) throw new Error('OCR 執行結果不符預期');
+            } catch (error) {
+                output.textContent = `FAIL\n${error.stack || error.message}`;
+                throw error;
+            }
+        })();
+    </script>
+</body>
+</html>
+
