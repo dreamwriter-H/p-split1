@@ -19,18 +19,9 @@ service cloud.firestore {
       return /databases/$(database)/documents/apps/spliteasy-v2/projects/$(projectId)/invites/$(inviteId);
     }
 
-    function userIndexPath(uid, projectId) {
-      return /databases/$(database)/documents/users/$(uid)/projects/$(projectId);
-    }
-
     function isMember(projectId) {
       return isGoogleUser()
         && exists(memberPath(projectId, request.auth.uid));
-    }
-
-    function hasOwnIndex(projectId) {
-      return isGoogleUser()
-        && exists(userIndexPath(request.auth.uid, projectId));
     }
 
     function isOwner(projectId) {
@@ -59,8 +50,8 @@ service cloud.firestore {
           'id', 'name', 'type', 'ownerId', 'createdAt', 'updatedAt', 'data'
         ]);
 
-      // 個人索引也能讀取，以便擁有者刪除後，其他人下次登入時清掉失效索引。
-      allow get: if isMember(projectId) || hasOwnIndex(projectId);
+      // 專案內容只允許成員讀取；首頁殘留索引由使用者自己的 App 偵測權限失效後清除。
+      allow get: if isMember(projectId);
       allow list: if false;
 
       allow update: if isMember(projectId)
@@ -71,7 +62,7 @@ service cloud.firestore {
       allow delete: if isOwner(projectId);
 
       match /members/{memberId} {
-        allow get, list: if isMember(projectId) || hasOwnIndex(projectId);
+        allow get, list: if isMember(projectId);
 
         allow create: if isGoogleUser()
           && memberId == request.auth.uid
