@@ -1,0 +1,242 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isGoogleUser() {
+      return request.auth != null
+        && request.auth.token.firebase.sign_in_provider == 'google.com';
+    }
+
+    function projectPath(projectId) {
+      return /databases/$(database)/documents/apps/spliteasy-v2/projects/$(projectId);
+    }
+
+    function memberPath(projectId, uid) {
+      return /databases/$(database)/documents/apps/spliteasy-v2/projects/$(projectId)/members/$(uid);
+    }
+
+    function invitePath(projectId, inviteId) {
+      return /databases/$(database)/documents/apps/spliteasy-v2/projects/$(projectId)/invites/$(inviteId);
+    }
+
+    function isMember(projectId) {
+      return isGoogleUser()
+        && exists(memberPath(projectId, request.auth.uid));
+    }
+
+    function isOwner(projectId) {
+      return isGoogleUser()
+        && get(projectPath(projectId)).data.ownerId == request.auth.uid;
+    }
+
+    function isOwnerAfterWrite(projectId) {
+      return isGoogleUser()
+        && getAfter(projectPath(projectId)).data.ownerId == request.auth.uid;
+    }
+
+    function hasActiveInvite(projectId, inviteId) {
+      return isGoogleUser()
+        && exists(invitePath(projectId, inviteId))
+        && get(invitePath(projectId, inviteId)).data.status == 'active';
+    }
+
+    // v2.2 驗收版使用獨立資料空間，不讀寫 v2.1 正式帳本。
+    function previewProjectPath(projectId) {
+      return /databases/$(database)/documents/apps/spliteasy-v2-2-preview/projects/$(projectId);
+    }
+
+    function previewMemberPath(projectId, uid) {
+      return /databases/$(database)/documents/apps/spliteasy-v2-2-preview/projects/$(projectId)/members/$(uid);
+    }
+
+    function previewInvitePath(projectId, inviteId) {
+      return /databases/$(database)/documents/apps/spliteasy-v2-2-preview/projects/$(projectId)/invites/$(inviteId);
+    }
+
+    function isPreviewMember(projectId) {
+      return isGoogleUser()
+        && exists(previewMemberPath(projectId, request.auth.uid));
+    }
+
+    function isPreviewOwner(projectId) {
+      return isGoogleUser()
+        && get(previewProjectPath(projectId)).data.ownerId == request.auth.uid;
+    }
+
+    function isPreviewOwnerAfterWrite(projectId) {
+      return isGoogleUser()
+        && getAfter(previewProjectPath(projectId)).data.ownerId == request.auth.uid;
+    }
+
+    function hasActivePreviewInvite(projectId, inviteId) {
+      return isGoogleUser()
+        && exists(previewInvitePath(projectId, inviteId))
+        && get(previewInvitePath(projectId, inviteId)).data.status == 'active';
+    }
+
+    // v2 正式資料：一個專案只存一份，成員以 Google uid 判斷。
+    match /apps/spliteasy-v2/projects/{projectId} {
+      allow create: if isGoogleUser()
+        && request.resource.data.ownerId == request.auth.uid
+        && request.resource.data.schemaVersion == '2.0.0'
+        && request.resource.data.type in ['dining', 'travel']
+        && request.resource.data.keys().hasAll([
+          'id', 'name', 'type', 'ownerId', 'createdAt', 'updatedAt', 'data'
+        ]);
+
+      // 專案內容只允許成員讀取；首頁殘留索引由使用者自己的 App 偵測權限失效後清除。
+      allow get: if isMember(projectId);
+      allow list: if false;
+
+      allow update: if isMember(projectId)
+        && request.resource.data.ownerId == resource.data.ownerId
+        && request.resource.data.type == resource.data.type
+        && request.resource.data.schemaVersion == resource.data.schemaVersion;
+
+      allow delete: if isOwner(projectId);
+
+      match /members/{memberId} {
+        allow get, list: if isMember(projectId);
+
+        allow create: if isGoogleUser()
+          && memberId == request.auth.uid
+          && request.resource.data.role in ['owner', 'editor']
+          && (
+            (
+              request.resource.data.role == 'owner'
+              && isOwnerAfterWrite(projectId)
+            )
+            ||
+            (
+              request.resource.data.role == 'editor'
+              && request.resource.data.keys().hasAll(['inviteId'])
+              && hasActiveInvite(projectId, request.resource.data.inviteId)
+            )
+          );
+
+        allow update: if isOwner(projectId);
+        allow delete: if isOwner(projectId)
+          || (isGoogleUser() && memberId == request.auth.uid);
+      }
+
+      match /invites/{inviteId} {
+        // 邀請碼本身是高強度隨機值；禁止列出，只允許持有完整網址的人讀取指定邀請。
+        allow get: if isGoogleUser();
+        allow list: if isOwner(projectId);
+        allow create: if isOwner(projectId)
+          && request.resource.data.createdBy == request.auth.uid;
+        allow update: if isOwner(projectId)
+          && request.resource.data.createdBy == resource.data.createdBy;
+        allow delete: if isOwner(projectId);
+      }
+    }
+
+    // 每位使用者只看得到自己的專案目錄。
+    match /users/{userId}/projects/{projectId} {
+      allow get, list: if isGoogleUser() && userId == request.auth.uid;
+
+      allow create: if isGoogleUser()
+        && userId == request.auth.uid
+        && request.resource.data.role in ['owner', 'editor']
+        && (
+          (
+            request.resource.data.role == 'owner'
+            && isOwnerAfterWrite(projectId)
+          )
+          ||
+          (
+            request.resource.data.role == 'editor'
+            && existsAfter(memberPath(projectId, request.auth.uid))
+          )
+        );
+
+      allow update, delete: if isGoogleUser()
+        && userId == request.auth.uid;
+    }
+
+    // v2.2 預覽專案：規則與正式版並存，但路徑及個人索引完全隔離。
+    match /apps/spliteasy-v2-2-preview/projects/{projectId} {
+      allow create: if isGoogleUser()
+        && request.resource.data.ownerId == request.auth.uid
+        && request.resource.data.schemaVersion == '2.2.0-preview'
+        && request.resource.data.type in ['dining', 'travel']
+        && request.resource.data.keys().hasAll([
+          'id', 'name', 'type', 'ownerId', 'createdAt', 'updatedAt', 'data'
+        ]);
+
+      allow get: if isPreviewMember(projectId);
+      allow list: if false;
+
+      allow update: if isPreviewMember(projectId)
+        && request.resource.data.ownerId == resource.data.ownerId
+        && request.resource.data.type == resource.data.type
+        && request.resource.data.schemaVersion == resource.data.schemaVersion;
+
+      allow delete: if isPreviewOwner(projectId);
+
+      match /members/{memberId} {
+        allow get, list: if isPreviewMember(projectId);
+
+        allow create: if isGoogleUser()
+          && memberId == request.auth.uid
+          && request.resource.data.role in ['owner', 'editor']
+          && (
+            (
+              request.resource.data.role == 'owner'
+              && isPreviewOwnerAfterWrite(projectId)
+            )
+            ||
+            (
+              request.resource.data.role == 'editor'
+              && request.resource.data.keys().hasAll(['inviteId'])
+              && hasActivePreviewInvite(projectId, request.resource.data.inviteId)
+            )
+          );
+
+        allow update: if isPreviewOwner(projectId);
+        allow delete: if isPreviewOwner(projectId)
+          || (isGoogleUser() && memberId == request.auth.uid);
+      }
+
+      match /invites/{inviteId} {
+        allow get: if isGoogleUser();
+        allow list: if isPreviewOwner(projectId);
+        allow create: if isPreviewOwner(projectId)
+          && request.resource.data.createdBy == request.auth.uid;
+        allow update: if isPreviewOwner(projectId)
+          && request.resource.data.createdBy == resource.data.createdBy;
+        allow delete: if isPreviewOwner(projectId);
+      }
+    }
+
+    match /users/{userId}/spaces/spliteasy-v2-2-preview/projects/{projectId} {
+      allow get, list: if isGoogleUser() && userId == request.auth.uid;
+
+      allow create: if isGoogleUser()
+        && userId == request.auth.uid
+        && request.resource.data.role in ['owner', 'editor']
+        && (
+          (
+            request.resource.data.role == 'owner'
+            && isPreviewOwnerAfterWrite(projectId)
+          )
+          ||
+          (
+            request.resource.data.role == 'editor'
+            && existsAfter(previewMemberPath(projectId, request.auth.uid))
+          )
+        );
+
+      allow update: if isGoogleUser() && userId == request.auth.uid;
+
+      // 本人可清理自己的索引；專案擁有者移除成員或刪除專案時，可同步清理該專案索引。
+      allow delete: if isGoogleUser()
+        && (userId == request.auth.uid || isPreviewOwner(projectId));
+    }
+
+    // v1 舊路徑全面停寫，避免舊分頁在清除後又把匿名資料寫回來。
+    match /artifacts/{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
