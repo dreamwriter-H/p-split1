@@ -11,8 +11,8 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
-    <script src="./invoice-image-scanner.js"></script>
-    <script src="./invoice-qr-parser.js"></script>
+    <script src="./invoice-image-scanner.js?v=2.2.0-rc4"></script>
+    <script src="./invoice-qr-parser.js?v=2.2.0-rc3"></script>
     <script src="./receipt-ocr.js?v=2.2.0-preview"></script>
 
     <style>
@@ -46,7 +46,7 @@
         const db = getFirestore(app);
         const FIREBASE_APP_ID = 'spliteasy-2026';
         const APP_VERSION = '2.2.0-preview';
-        const BUILD_ID = 'v2.2.0-rc2';
+        const BUILD_ID = 'v2.2.0-rc4';
         // 預覽版使用完全獨立的資料空間與首頁索引，避免測試寫入 v2.1 正式帳本。
         const DATA_SPACE = 'spliteasy-v2-2-preview';
         const USER_INDEX_SPACE = 'spliteasy-v2-2-preview';
@@ -816,11 +816,12 @@
                 setScanNotice('');
                 try {
                     const scanResult = await window.SplitEasyInvoiceImageScanner.scanFile(file, {
+                        mode: scanMode,
                         onProgress: progress => setScanProgress(progress)
                     });
                     if (!scanResult.codes.length) {
                         setNeedsCloseup(true);
-                        setScanNotice('整張照片已自動分區、放大並加強對比，仍未找到 QR。請補拍較清楚的 QR 特寫。');
+                        setScanNotice('照片已直接從原圖分區放大、加強對比並嘗試方向修正，仍未找到 QR。請補拍較清楚的 QR 特寫。');
                         return;
                     }
 
@@ -834,7 +835,7 @@
                     if (foundPair) {
                         setScanNotice('左右 QR 都已自動辨識完成，請核對下方品項與總額。');
                     } else if (foundLeft) {
-                        setScanNotice(parseResult.status === 'ready' ? '已讀到發票資料；若品項不完整，可再補拍右方 QR 特寫。' : '已讀到左方 QR，請補拍右方 QR 特寫。');
+                        setScanNotice(parseResult.status === 'ready' ? '已讀到左方 QR 的基本資料，但右方品項可能不完整；請只拍右方 QR 特寫，讓 QR 約佔畫面寬度 1/3～1/2 並保留四周空白。' : '已讀到左方 QR，請補拍右方 QR 特寫。');
                     } else if (foundRight) {
                         setScanNotice('已讀到右方 QR，請補拍左方 QR 特寫。');
                     } else {
@@ -893,7 +894,7 @@
                                 {isScanning && scanProgress && <div className="mt-3"><div className="h-2 bg-teal-100 rounded-full overflow-hidden"><div className="h-full bg-teal-500 transition-all" style={{ width: `${Math.round(scanProgress.current / scanProgress.total * 100)}%` }}></div></div><p className="mt-1 text-[11px] text-teal-700">正在檢查：{scanProgress.label}</p></div>}
                             </div>
 
-                            {(scanNotice || rawCodes.length > 0) && <div className={`rounded-xl border p-3 ${hasLeftQr && (hasRightQr || parsed?.status === 'ready') ? 'bg-emerald-50 border-emerald-100 text-emerald-800' : 'bg-amber-50 border-amber-100 text-amber-800'}`}><div className="flex gap-2 mb-2"><span className={`px-2 py-1 rounded-full text-[11px] font-bold ${hasLeftQr ? 'bg-emerald-100 text-emerald-700' : 'bg-white/70 text-slate-400'}`}>{hasLeftQr ? '✓ 左方 QR' : '○ 左方 QR'}</span><span className={`px-2 py-1 rounded-full text-[11px] font-bold ${hasRightQr ? 'bg-emerald-100 text-emerald-700' : 'bg-white/70 text-slate-400'}`}>{hasRightQr ? '✓ 右方 QR' : '○ 右方 QR'}</span></div>{scanNotice && <p className="text-xs leading-relaxed">{scanNotice}</p>}</div>}
+                            {(scanNotice || rawCodes.length > 0) && <div className={`rounded-xl border p-3 ${hasLeftQr && hasRightQr ? 'bg-emerald-50 border-emerald-100 text-emerald-800' : 'bg-amber-50 border-amber-100 text-amber-800'}`}><div className="flex gap-2 mb-2"><span className={`px-2 py-1 rounded-full text-[11px] font-bold ${hasLeftQr ? 'bg-emerald-100 text-emerald-700' : 'bg-white/70 text-slate-400'}`}>{hasLeftQr ? '✓ 左方 QR' : '○ 左方 QR'}</span><span className={`px-2 py-1 rounded-full text-[11px] font-bold ${hasRightQr ? 'bg-emerald-100 text-emerald-700' : 'bg-white/70 text-slate-400'}`}>{hasRightQr ? '✓ 右方 QR' : '○ 右方 QR'}</span></div>{scanNotice && <p className="text-xs leading-relaxed">{scanNotice}</p>}</div>}
 
                             {(needsCloseup || (rawCodes.length > 0 && !hasRightQr)) && <div className="rounded-xl border border-slate-200 p-3"><p className="text-xs font-bold text-slate-700">需要補拍時</p><p className="text-xs text-slate-500 mt-1">只把尚未讀到的單一 QR 放大拍清楚，不需要輸入看不懂的 QR 原始文字。</p><div className="grid grid-cols-2 gap-3 mt-3"><button onClick={() => singleQrCameraInputRef.current?.click()} disabled={isScanning} className="p-3 rounded-xl bg-slate-800 disabled:opacity-50 text-white text-sm font-bold"><i className="fa-solid fa-camera mr-2"></i>拍攝 QR 特寫</button><button onClick={() => singleQrGalleryInputRef.current?.click()} disabled={isScanning} className="p-3 rounded-xl border border-slate-300 bg-white disabled:opacity-50 text-slate-700 text-sm font-bold"><i className="fa-solid fa-images mr-2"></i>從相簿選 QR</button></div><input ref={singleQrCameraInputRef} type="file" accept="image/*" capture="environment" onChange={event => handleFile(event, 'closeup')} className="hidden" /><input ref={singleQrGalleryInputRef} type="file" accept="image/*" onChange={event => handleFile(event, 'closeup')} className="hidden" /></div>}
 

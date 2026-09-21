@@ -3,9 +3,15 @@
 
     const LEFT_QR_PATTERN = /^[A-Z]{2}\d{8}\d{7}[\d ]{4}[0-9A-Fa-f]{16}/;
     const RIGHT_QR_PATTERN = /^\*\*/;
+    const MAX_SCAN_ATTEMPTS = 22;
+    const DEFAULT_MAX_PIXELS = 2200000;
+
+    const normalizeCode = (value) => String(value || '')
+        .replace(/^[\u0000-\u001f\u007f-\u009f\uFEFF]+/, '')
+        .trim();
 
     const classifyCode = (value) => {
-        const code = String(value || '').trim();
+        const code = normalizeCode(value);
         if (LEFT_QR_PATTERN.test(code)) return 'left';
         if (RIGHT_QR_PATTERN.test(code)) return 'right';
         return 'other';
@@ -17,10 +23,15 @@
     };
 
     const appendUnique = (target, values) => {
+        const added = [];
         values.forEach(value => {
-            const code = String(value || '').trim();
-            if (code && !target.includes(code)) target.push(code);
+            const code = normalizeCode(value);
+            if (code && !target.includes(code)) {
+                target.push(code);
+                added.push(code);
+            }
         });
+        return added;
     };
 
     const nextFrame = () => new Promise(resolve => global.setTimeout(resolve, 0));
@@ -60,88 +71,102 @@
         };
     };
 
-    const makeBaseCanvas = (source, width, height) => {
-        const maxDimension = 2600;
-        const scale = Math.min(1, maxDimension / Math.max(width, height));
-        const canvas = document.createElement('canvas');
-        canvas.width = Math.max(1, Math.round(width * scale));
-        canvas.height = Math.max(1, Math.round(height * scale));
-        const context = canvas.getContext('2d', { willReadFrequently: true });
-        context.fillStyle = '#ffffff';
-        context.fillRect(0, 0, canvas.width, canvas.height);
-        context.imageSmoothingEnabled = true;
-        context.imageSmoothingQuality = 'high';
-        context.drawImage(source, 0, 0, canvas.width, canvas.height);
-        return canvas;
+    // The first pass intentionally isolates the two QR positions. Real receipt photos showed
+    // that jsQR can lock on to one dense symbol and fail to locate the adjacent symbol when both
+    // are present in the same raster. Keep these crops at the photo's native resolution and do
+    // not enhance, mask, pad, or resample them.
+    const buildStrictHalfPlans = () => [
+        { label: '左側 QR 原圖區域 A', x: 0, y: 0.56, width: 0.51, height: 0.30, nativeResolution: true, variants: ['original'], skipGuided: true, strictHalf: true },
+        { label: '右側 QR 原圖區域 A', x: 0.49, y: 0.56, width: 0.51, height: 0.30, nativeResolution: true, variants: ['original'], skipGuided: true, strictHalf: true },
+        { label: '左側 QR 原圖區域 B', x: 0, y: 0.50, width: 0.51, height: 0.34, nativeResolution: true, variants: ['original'], skipGuided: true, strictHalf: true },
+        { label: '右側 QR 原圖區域 B', x: 0.49, y: 0.50, width: 0.51, height: 0.34, nativeResolution: true, variants: ['original'], skipGuided: true, strictHalf: true }
+    ];
+
+    // Every fallback crop is also rendered directly from the original photo. This intentionally
+    // avoids the old two-step "whole photo downscale, then crop" path which erased dense modules.
+    const buildCropPlans = () => [
+        { label: '完整照片快速定位', x: 0, y: 0, width: 1, height: 1, maxSide: 1800, minShortSide: 760, maxPixels: 1700000, variants: ['original'] },
+        { label: '下方高解析區域', x: 0, y: 0.38, width: 1, height: 0.62, maxSide: 2200, minShortSide: 1050, variants: ['original', 'contrast'] },
+        { label: '中段高解析區域', x: 0, y: 0.18, width: 1, height: 0.64, maxSide: 2200, minShortSide: 1050, variants: ['original', 'contrast'] },
+        { label: '左下高解析區域', x: 0, y: 0.56, width: 0.58, height: 0.44, maxSide: 1800, minShortSide: 1050, variants: ['original', 'contrast'] },
+        { label: '右下高解析區域', x: 0.42, y: 0.56, width: 0.58, height: 0.44, maxSide: 1800, minShortSide: 1050, variants: ['original', 'contrast'] },
+        { label: '左中高解析區域', x: 0, y: 0.28, width: 0.58, height: 0.46, maxSide: 1800, minShortSide: 1050, variants: ['original', 'contrast'] },
+        { label: '右中高解析區域', x: 0.42, y: 0.28, width: 0.58, height: 0.46, maxSide: 1800, minShortSide: 1050, variants: ['original', 'contrast'] },
+        { label: '左上高解析區域', x: 0, y: 0, width: 0.58, height: 0.46, maxSide: 1800, minShortSide: 1050, variants: ['original', 'contrast'] },
+        { label: '右上高解析區域', x: 0.42, y: 0, width: 0.58, height: 0.46, maxSide: 1800, minShortSide: 1050, variants: ['original', 'contrast'] }
+    ];
+
+    const clamp = (value, minimum, maximum) => Math.max(minimum, Math.min(maximum, value));
+
+    const resolveCropRect = (plan, sourceWidth, sourceHeight) => {
+        const pixelUnits = plan.units === 'pixels';
+        const requestedX = pixelUnits ? plan.x : sourceWidth * plan.x;
+        const requestedY = pixelUnits ? plan.y : sourceHeight * plan.y;
+        const requestedWidth = pixelUnits ? plan.width : sourceWidth * plan.width;
+        const requestedHeight = pixelUnits ? plan.height : sourceHeight * plan.height;
+        const x = clamp(Math.floor(requestedX), 0, Math.max(0, sourceWidth - 1));
+        const y = clamp(Math.floor(requestedY), 0, Math.max(0, sourceHeight - 1));
+        const width = clamp(Math.ceil(requestedWidth), 1, sourceWidth - x);
+        const height = clamp(Math.ceil(requestedHeight), 1, sourceHeight - y);
+        return { x, y, width, height };
     };
 
-    const buildCropPlans = () => {
-        const plans = [
-            { label: '完整照片', x: 0, y: 0, width: 1, height: 1, maxSide: 1600 },
-            { label: '照片下半部', x: 0, y: 0.45, width: 1, height: 0.55, maxSide: 1400 },
-            { label: '照片中段', x: 0, y: 0.225, width: 1, height: 0.55, maxSide: 1400 },
-            { label: '照片上半部', x: 0, y: 0, width: 1, height: 0.55, maxSide: 1400 }
-        ];
-
-        const rowStarts = [0, 0.2, 0.4, 0.6];
-        const columnStarts = [0, 0.225, 0.45];
-        rowStarts.forEach((y, rowIndex) => {
-            columnStarts.forEach((x, columnIndex) => {
-                plans.push({
-                    label: `區域 ${rowIndex + 1}-${columnIndex + 1}`,
-                    x,
-                    y,
-                    width: 0.55,
-                    height: 0.4,
-                    maxSide: 1250
-                });
-            });
-        });
-        return plans;
-    };
-
-    const renderCrop = (baseCanvas, plan) => {
-        const sourceX = Math.max(0, Math.floor(baseCanvas.width * plan.x));
-        const sourceY = Math.max(0, Math.floor(baseCanvas.height * plan.y));
-        const sourceWidth = Math.min(baseCanvas.width - sourceX, Math.ceil(baseCanvas.width * plan.width));
-        const sourceHeight = Math.min(baseCanvas.height - sourceY, Math.ceil(baseCanvas.height * plan.height));
-        const longestSide = Math.max(sourceWidth, sourceHeight);
-        const shortestSide = Math.max(1, Math.min(sourceWidth, sourceHeight));
-        const upscale = Math.min(2, Math.max(1, 720 / shortestSide));
-        const scale = Math.min(upscale, plan.maxSide / longestSide);
-        const canvas = document.createElement('canvas');
-        canvas.width = Math.max(1, Math.round(sourceWidth * scale));
-        canvas.height = Math.max(1, Math.round(sourceHeight * scale));
-        const context = canvas.getContext('2d', { willReadFrequently: true });
-        context.fillStyle = '#ffffff';
-        context.fillRect(0, 0, canvas.width, canvas.height);
-        context.imageSmoothingEnabled = true;
-        context.imageSmoothingQuality = 'high';
-        context.drawImage(baseCanvas, sourceX, sourceY, sourceWidth, sourceHeight, 0, 0, canvas.width, canvas.height);
-        return canvas;
-    };
-
-    const maskResult = (imageData, result) => {
-        const location = result?.location;
-        if (!location) return;
-        const points = [location.topLeftCorner, location.topRightCorner, location.bottomRightCorner, location.bottomLeftCorner].filter(Boolean);
-        if (!points.length) return;
-        const xs = points.map(point => point.x);
-        const ys = points.map(point => point.y);
-        const padding = Math.max(10, Math.round(Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)) * 0.15));
-        const startX = Math.max(0, Math.floor(Math.min(...xs) - padding));
-        const endX = Math.min(imageData.width, Math.ceil(Math.max(...xs) + padding));
-        const startY = Math.max(0, Math.floor(Math.min(...ys) - padding));
-        const endY = Math.min(imageData.height, Math.ceil(Math.max(...ys) + padding));
-        for (let y = startY; y < endY; y += 1) {
-            for (let x = startX; x < endX; x += 1) {
-                const offset = (y * imageData.width + x) * 4;
-                imageData.data[offset] = 255;
-                imageData.data[offset + 1] = 255;
-                imageData.data[offset + 2] = 255;
-                imageData.data[offset + 3] = 255;
-            }
+    const chooseRenderSize = (rect, plan) => {
+        if (plan.nativeResolution) {
+            return { width: rect.width, height: rect.height };
         }
+        const longest = Math.max(rect.width, rect.height);
+        const shortest = Math.max(1, Math.min(rect.width, rect.height));
+        const maxSide = plan.maxSide || 1800;
+        const minShortSide = plan.minShortSide || 900;
+        const maxPixels = plan.maxPixels || DEFAULT_MAX_PIXELS;
+        const desiredScale = Math.max(1, minShortSide / shortest);
+        const allowedScale = Math.min(2.5, maxSide / longest, Math.sqrt(maxPixels / (rect.width * rect.height)));
+        const scale = Math.max(0.05, Math.min(desiredScale, allowedScale));
+        return {
+            width: Math.max(1, Math.round(rect.width * scale)),
+            height: Math.max(1, Math.round(rect.height * scale))
+        };
+    };
+
+    const renderCrop = (source, sourceWidth, sourceHeight, plan, rotation = 0) => {
+        const rect = resolveCropRect(plan, sourceWidth, sourceHeight);
+        const renderSize = chooseRenderSize(rect, plan);
+        const normalizedRotation = ((rotation % 360) + 360) % 360;
+        const swapDimensions = normalizedRotation === 90 || normalizedRotation === 270;
+        const canvas = document.createElement('canvas');
+        canvas.width = swapDimensions ? renderSize.height : renderSize.width;
+        canvas.height = swapDimensions ? renderSize.width : renderSize.height;
+        const context = canvas.getContext('2d', { willReadFrequently: true });
+        context.fillStyle = '#ffffff';
+        context.fillRect(0, 0, canvas.width, canvas.height);
+        const isDownscaling = renderSize.width < rect.width || renderSize.height < rect.height;
+        context.imageSmoothingEnabled = isDownscaling;
+        if (isDownscaling) context.imageSmoothingQuality = 'high';
+
+        if (normalizedRotation === 90) {
+            context.translate(canvas.width, 0);
+            context.rotate(Math.PI / 2);
+        } else if (normalizedRotation === 180) {
+            context.translate(canvas.width, canvas.height);
+            context.rotate(Math.PI);
+        } else if (normalizedRotation === 270) {
+            context.translate(0, canvas.height);
+            context.rotate(-Math.PI / 2);
+        }
+
+        context.drawImage(
+            source,
+            rect.x,
+            rect.y,
+            rect.width,
+            rect.height,
+            0,
+            0,
+            renderSize.width,
+            renderSize.height
+        );
+        return { canvas, rect, renderSize, rotation: normalizedRotation };
     };
 
     const increaseContrast = (source) => {
@@ -153,8 +178,8 @@
             histogram[gray] += 1;
             pixels += 1;
         }
-        const lowerTarget = pixels * 0.03;
-        const upperTarget = pixels * 0.97;
+        const lowerTarget = pixels * 0.025;
+        const upperTarget = pixels * 0.975;
         let cumulative = 0;
         let low = 0;
         let high = 255;
@@ -167,14 +192,14 @@
             cumulative += histogram[value];
             if (cumulative >= upperTarget) { high = value; break; }
         }
-        if (high - low < 40) {
-            low = Math.max(0, low - 20);
-            high = Math.min(255, high + 20);
+        if (high - low < 50) {
+            low = Math.max(0, low - 25);
+            high = Math.min(255, high + 25);
         }
         const range = Math.max(1, high - low);
         for (let index = 0; index < enhanced.data.length; index += 4) {
             const gray = enhanced.data[index] * 0.299 + enhanced.data[index + 1] * 0.587 + enhanced.data[index + 2] * 0.114;
-            const adjusted = Math.max(0, Math.min(255, Math.round((gray - low) * 255 / range)));
+            const adjusted = clamp(Math.round((gray - low) * 255 / range), 0, 255);
             enhanced.data[index] = adjusted;
             enhanced.data[index + 1] = adjusted;
             enhanced.data[index + 2] = adjusted;
@@ -183,87 +208,255 @@
         return enhanced;
     };
 
-    const decodeImageData = (sourceImageData) => {
-        const codes = [];
-        const working = new ImageData(new Uint8ClampedArray(sourceImageData.data), sourceImageData.width, sourceImageData.height);
-        const decode = imageData => global.jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: 'attemptBoth' });
-
-        let result = decode(working);
-        if (result?.data) {
-            appendUnique(codes, [result.data]);
-            maskResult(working, result);
-            result = decode(working);
-            if (result?.data) appendUnique(codes, [result.data]);
+    const applyOtsuThreshold = (source) => {
+        const thresholded = new ImageData(new Uint8ClampedArray(source.data), source.width, source.height);
+        const histogram = new Uint32Array(256);
+        let total = 0;
+        let weightedTotal = 0;
+        for (let index = 0; index < thresholded.data.length; index += 16) {
+            const value = thresholded.data[index];
+            histogram[value] += 1;
+            total += 1;
+            weightedTotal += value;
         }
-
-        if (!hasInvoicePair(codes)) {
-            const enhanced = increaseContrast(working);
-            result = decode(enhanced);
-            if (result?.data) {
-                appendUnique(codes, [result.data]);
-                maskResult(enhanced, result);
-                result = decode(enhanced);
-                if (result?.data) appendUnique(codes, [result.data]);
+        let backgroundWeight = 0;
+        let backgroundSum = 0;
+        let bestVariance = -1;
+        let threshold = 128;
+        for (let value = 0; value < 256; value += 1) {
+            backgroundWeight += histogram[value];
+            if (!backgroundWeight) continue;
+            const foregroundWeight = total - backgroundWeight;
+            if (!foregroundWeight) break;
+            backgroundSum += value * histogram[value];
+            const backgroundMean = backgroundSum / backgroundWeight;
+            const foregroundMean = (weightedTotal - backgroundSum) / foregroundWeight;
+            const variance = backgroundWeight * foregroundWeight * Math.pow(backgroundMean - foregroundMean, 2);
+            if (variance > bestVariance) {
+                bestVariance = variance;
+                threshold = value;
             }
         }
-        return codes;
+        threshold = clamp(threshold, 55, 215);
+        for (let index = 0; index < thresholded.data.length; index += 4) {
+            const value = thresholded.data[index] < threshold ? 0 : 255;
+            thresholded.data[index] = value;
+            thresholded.data[index + 1] = value;
+            thresholded.data[index + 2] = value;
+            thresholded.data[index + 3] = 255;
+        }
+        return thresholded;
     };
 
-    const scanPreparedCanvas = async (baseCanvas, options = {}) => {
+    const createVariant = (sourceImageData, variant) => {
+        if (variant === 'contrast') return increaseContrast(sourceImageData);
+        if (variant === 'threshold') return applyOtsuThreshold(increaseContrast(sourceImageData));
+        return new ImageData(new Uint8ClampedArray(sourceImageData.data), sourceImageData.width, sourceImageData.height);
+    };
+
+    const decodeImageData = (sourceImageData, variants) => {
+        const detections = [];
+        const decode = imageData => global.jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: 'attemptBoth' });
+        for (const variant of variants) {
+            const working = createVariant(sourceImageData, variant);
+            const result = decode(working);
+            if (!result?.data) continue;
+            const code = normalizeCode(result.data);
+            if (code && !detections.some(item => item.data === code)) {
+                detections.push({ data: code, type: classifyCode(code), location: result.location, variant });
+            }
+        }
+        return detections;
+    };
+
+    const inverseRotatePoint = (point, rendered) => {
+        const width = rendered.renderSize.width;
+        const height = rendered.renderSize.height;
+        if (rendered.rotation === 90) return { x: point.y, y: height - point.x };
+        if (rendered.rotation === 180) return { x: width - point.x, y: height - point.y };
+        if (rendered.rotation === 270) return { x: width - point.y, y: point.x };
+        return { x: point.x, y: point.y };
+    };
+
+    const locationToSourceBox = (location, rendered) => {
+        if (!location) return null;
+        const points = [location.topLeftCorner, location.topRightCorner, location.bottomRightCorner, location.bottomLeftCorner]
+            .filter(Boolean)
+            .map(point => inverseRotatePoint(point, rendered));
+        if (!points.length) return null;
+        const xs = points.map(point => rendered.rect.x + point.x / rendered.renderSize.width * rendered.rect.width);
+        const ys = points.map(point => rendered.rect.y + point.y / rendered.renderSize.height * rendered.rect.height);
+        const left = Math.min(...xs);
+        const right = Math.max(...xs);
+        const top = Math.min(...ys);
+        const bottom = Math.max(...ys);
+        return { x: left, y: top, width: Math.max(1, right - left), height: Math.max(1, bottom - top) };
+    };
+
+    const buildGuidedCropPlans = (detection, sourceWidth, sourceHeight) => {
+        const box = detection?.sourceBox;
+        if (!box) return [];
+        const qrSize = Math.max(box.width, box.height);
+        const centerX = box.x + box.width / 2;
+        const centerY = box.y + box.height / 2;
+        const cropSize = Math.max(180, qrSize * 2.7);
+        const rowWidth = Math.max(cropSize * 2.3, qrSize * 6.2);
+        const createPlan = (label, x, y, width, height) => {
+            const startX = clamp(x, 0, Math.max(0, sourceWidth - 1));
+            const startY = clamp(y, 0, Math.max(0, sourceHeight - 1));
+            return {
+                label,
+                units: 'pixels',
+                x: startX,
+                y: startY,
+                width: clamp(width, 1, sourceWidth - startX),
+                height: clamp(height, 1, sourceHeight - startY),
+                maxSide: 1900,
+                minShortSide: 1200,
+                maxPixels: 2600000,
+                variants: ['original', 'contrast', 'threshold'],
+                guided: true
+            };
+        };
+        return [
+            createPlan('同高度右側 QR 精細搜尋', centerX + qrSize * 0.25, centerY - cropSize / 2, cropSize, cropSize),
+            createPlan('同高度左側 QR 精細搜尋', centerX - qrSize * 0.25 - cropSize, centerY - cropSize / 2, cropSize, cropSize),
+            createPlan('同高度左右 QR 完整搜尋', centerX - rowWidth / 2, centerY - cropSize * 0.58, rowWidth, cropSize * 1.16)
+        ];
+    };
+
+    const scanPreparedSource = async (source, sourceWidth, sourceHeight, options = {}) => {
         if (typeof global.jsQR !== 'function') throw new Error('QR 辨識元件尚未載入，請確認網路後重新開啟頁面。');
-        const plans = buildCropPlans();
+        const closeupMode = options.mode === 'closeup';
+        const plans = closeupMode ? [{
+            label: '單一 QR 特寫高解析',
+            x: 0,
+            y: 0,
+            width: 1,
+            height: 1,
+            maxSide: 2200,
+            minShortSide: 1400,
+            maxPixels: 2800000,
+            variants: ['original', 'contrast', 'threshold']
+        }] : [...buildStrictHalfPlans(), ...buildCropPlans()];
+        const maxAttempts = closeupMode ? 4 : MAX_SCAN_ATTEMPTS;
         const codes = [];
+        const detections = [];
+        const strategiesTried = [];
+        const guidedTypes = new Set();
         let attempts = 0;
+        let bestStrategy = '';
+
+        const publishProgress = (label) => {
+            options.onProgress?.({
+                current: attempts,
+                total: maxAttempts,
+                label,
+                codes: [...codes],
+                foundLeft: codes.some(code => classifyCode(code) === 'left'),
+                foundRight: codes.some(code => classifyCode(code) === 'right')
+            });
+        };
+
+        const scanPlan = async (plan, rotation = 0) => {
+            if (attempts >= maxAttempts || hasInvoicePair(codes)) return [];
+            attempts += 1;
+            const label = `${plan.label}${rotation ? `（旋轉 ${rotation}°）` : ''}`;
+            strategiesTried.push(label);
+            publishProgress(label);
+            const rendered = renderCrop(source, sourceWidth, sourceHeight, plan, rotation);
+            try {
+                const context = rendered.canvas.getContext('2d', { willReadFrequently: true });
+                const imageData = context.getImageData(0, 0, rendered.canvas.width, rendered.canvas.height);
+                const found = decodeImageData(imageData, plan.variants || ['original']);
+                const newCodes = appendUnique(codes, found.map(item => item.data));
+                const mapped = found.map(item => ({
+                    ...item,
+                    sourceBox: locationToSourceBox(item.location, rendered),
+                    strategy: label
+                }));
+                detections.push(...mapped);
+                if (newCodes.some(code => classifyCode(code) !== 'other')) bestStrategy = label;
+                return mapped;
+            } finally {
+                rendered.canvas.width = 1;
+                rendered.canvas.height = 1;
+            }
+        };
+
+        const scanGuidedFrom = async (detection) => {
+            if (closeupMode || !detection || detection.type === 'other' || guidedTypes.has(detection.type)) return;
+            guidedTypes.add(detection.type);
+            const guidedPlans = buildGuidedCropPlans(detection, sourceWidth, sourceHeight);
+            for (const plan of guidedPlans) {
+                await scanPlan(plan);
+                if (hasInvoicePair(codes)) break;
+                await nextFrame();
+            }
+        };
 
         for (const plan of plans) {
-            attempts += 1;
-            options.onProgress?.({ current: attempts, total: plans.length, label: plan.label, codes: [...codes] });
-            const cropCanvas = renderCrop(baseCanvas, plan);
-            const context = cropCanvas.getContext('2d', { willReadFrequently: true });
-            appendUnique(codes, decodeImageData(context.getImageData(0, 0, cropCanvas.width, cropCanvas.height)));
-            cropCanvas.width = 1;
-            cropCanvas.height = 1;
+            const found = await scanPlan(plan);
             if (hasInvoicePair(codes)) break;
-            if (attempts % 2 === 0) await nextFrame();
+            const invoiceDetection = found.find(item => item.type === 'left' || item.type === 'right');
+            if (invoiceDetection && !plan.skipGuided) await scanGuidedFrom(invoiceDetection);
+            if (hasInvoicePair(codes)) break;
+            await nextFrame();
         }
 
+        // Rotation is a bounded last-resort pass. jsQR is normally rotation-independent,
+        // but camera orientation metadata and raster rounding can still change finder detection.
+        if (!hasInvoicePair(codes) && attempts < maxAttempts) {
+            const anchor = detections.find(item => item.type === 'left' || item.type === 'right');
+            const fallbackPlan = closeupMode
+                ? { ...plans[0], label: '單一 QR 方向備援', variants: ['original', 'contrast'] }
+                : anchor
+                    ? buildGuidedCropPlans(anchor, sourceWidth, sourceHeight).slice(-1)[0]
+                    : { ...plans[0], label: '完整照片方向備援', variants: ['original', 'contrast'] };
+            if (fallbackPlan) {
+                for (const rotation of [90, 180, 270]) {
+                    await scanPlan(fallbackPlan, rotation);
+                    if (hasInvoicePair(codes)) break;
+                    await nextFrame();
+                }
+            }
+        }
+
+        publishProgress(hasInvoicePair(codes) ? '左右 QR 辨識完成' : '掃描完成');
         return {
             codes,
             attempts,
-            totalPlans: plans.length,
+            totalPlans: maxAttempts,
             foundLeft: codes.some(code => classifyCode(code) === 'left'),
             foundRight: codes.some(code => classifyCode(code) === 'right'),
-            foundPair: hasInvoicePair(codes)
+            foundPair: hasInvoicePair(codes),
+            bestStrategy,
+            strategiesTried
         };
     };
 
-    const scanCanvas = async (sourceCanvas, options = {}) => {
-        const baseCanvas = makeBaseCanvas(sourceCanvas, sourceCanvas.width, sourceCanvas.height);
-        try {
-            return await scanPreparedCanvas(baseCanvas, options);
-        } finally {
-            baseCanvas.width = 1;
-            baseCanvas.height = 1;
-        }
-    };
+    const scanCanvas = async (sourceCanvas, options = {}) => scanPreparedSource(
+        sourceCanvas,
+        sourceCanvas.width,
+        sourceCanvas.height,
+        options
+    );
 
     const scanFile = async (file, options = {}) => {
         const loaded = await loadImage(file);
         try {
-            const baseCanvas = makeBaseCanvas(loaded.source, loaded.width, loaded.height);
-            try {
-                return await scanPreparedCanvas(baseCanvas, options);
-            } finally {
-                baseCanvas.width = 1;
-                baseCanvas.height = 1;
-            }
+            return await scanPreparedSource(loaded.source, loaded.width, loaded.height, options);
         } finally {
             loaded.dispose();
         }
     };
 
-    global.SplitEasyInvoiceImageScanner = Object.freeze({ scanFile, scanCanvas, classifyCode, buildCropPlans });
+    global.SplitEasyInvoiceImageScanner = Object.freeze({
+        scanFile,
+        scanCanvas,
+        classifyCode,
+        buildStrictHalfPlans,
+        buildCropPlans,
+        normalizeCode
+    });
 })(window);
-
-
-
