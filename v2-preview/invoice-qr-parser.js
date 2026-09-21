@@ -1,6 +1,10 @@
 (function (global) {
     'use strict';
 
+    const normalizeCode = (value) => String(value || '')
+        .replace(/^[\u0000-\u001f\u007f-\u009f\uFEFF]+/, '')
+        .trim();
+
     const decodeBase64Utf8 = (value) => {
         const compact = value.replace(/\s/g, '');
         const padded = compact.padEnd(Math.ceil(compact.length / 4) * 4, '=');
@@ -31,7 +35,7 @@
     };
 
     const parse = (rawCodes) => {
-        const codes = [...new Set((rawCodes || []).map(code => String(code || '').trim()).filter(Boolean))];
+        const codes = [...new Set((rawCodes || []).map(normalizeCode).filter(Boolean))];
         const leftCode = codes.find(code => !code.startsWith('**') && /^[A-Z]{2}\d{8}\d{7}[\d ]{4}[0-9A-Fa-f]{16}/.test(code));
         const rightCodes = codes.filter(code => code.startsWith('**'));
         if (!leftCode) return { status: 'waiting-left', message: rightCodes.length ? '已讀到右方 QR，請再掃描左方 QR。' : '尚未讀到有效的臺灣電子發票左方 QR。' };

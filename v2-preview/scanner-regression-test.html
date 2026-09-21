@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="zh-TW">
+<head>
+    <meta charset="utf-8">
+    <title>Split Easy v2.2 QR 掃描回歸測試</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
+    <script src="./invoice-image-scanner.js?v=2.2.0-rc3"></script>
+</head>
+<body>
+    <pre id="result">測試中</pre>
+    <script>
+        const leftCode = 'AB112233441020523999900000144000001540000000001234567ydXZt4LAN1UHN/j1juVcRA==:**********:3:3:1:TEST:1:100';
+        const rightCode = `**${'ITEM:1:100:'.repeat(32)}`;
+
+        const createQrCanvas = (text, targetSize = 360) => {
+            const qr = qrcode(0, 'L');
+            qr.addData(text, 'Byte');
+            qr.make();
+            const modules = qr.getModuleCount();
+            const quietZone = 4;
+            const cellSize = Math.max(2, Math.floor(targetSize / (modules + quietZone * 2)));
+            const canvas = document.createElement('canvas');
+            canvas.width = (modules + quietZone * 2) * cellSize;
+            canvas.height = canvas.width;
+            const context = canvas.getContext('2d');
+            context.fillStyle = '#ffffff';
+            context.fillRect(0, 0, canvas.width, canvas.height);
+            context.fillStyle = '#000000';
+            for (let row = 0; row < modules; row += 1) {
+                for (let column = 0; column < modules; column += 1) {
+                    if (qr.isDark(row, column)) {
+                        context.fillRect((column + quietZone) * cellSize, (row + quietZone) * cellSize, cellSize, cellSize);
+                    }
+                }
+            }
+            return canvas;
+        };
+
+        const drawReceipt = ({ width = 1200, height = 2400, qrSize = 330, y = 1540, gap = 170, swapped = false, onlyLeft = false }) => {
+            const canvas = document.createElement('canvas');
+            canvas.width = width;
+            canvas.height = height;
+            const context = canvas.getContext('2d');
+            context.fillStyle = '#fffef9';
+            context.fillRect(0, 0, width, height);
+            context.fillStyle = '#444';
+            context.textAlign = 'center';
+            context.font = 'bold 46px sans-serif';
+            context.fillText('電子發票證明聯（合成測試）', width / 2, 120);
+            context.font = '28px monospace';
+            for (let lineY = 230; lineY < Math.min(y - 80, height - 200); lineY += 78) {
+                context.fillText('TEST ITEM       1       100', width / 2, lineY);
+            }
+            const leftQr = createQrCanvas(leftCode, qrSize);
+            const rightQr = createQrCanvas(rightCode, qrSize);
+            const totalWidth = qrSize * 2 + gap;
+            const firstX = Math.round((width - totalWidth) / 2);
+            const secondX = firstX + qrSize + gap;
+            context.imageSmoothingEnabled = false;
+            if (swapped) {
+                context.drawImage(rightQr, firstX, y, qrSize, qrSize);
+                context.drawImage(leftQr, secondX, y, qrSize, qrSize);
+            } else {
+                context.drawImage(leftQr, firstX, y, qrSize, qrSize);
+                if (!onlyLeft) context.drawImage(rightQr, secondX, y, qrSize, qrSize);
+            }
+            return canvas;
+        };
+
+        const rotateCanvas90 = (source) => {
+            const canvas = document.createElement('canvas');
+            canvas.width = source.height;
+            canvas.height = source.width;
+            const context = canvas.getContext('2d');
+            context.fillStyle = '#fff';
+            context.fillRect(0, 0, canvas.width, canvas.height);
+            context.translate(canvas.width, 0);
+            context.rotate(Math.PI / 2);
+            context.drawImage(source, 0, 0);
+            return canvas;
+        };
+
+        const scan = async (name, canvas, options = {}) => {
+            const startedAt = performance.now();
+            const result = await window.SplitEasyInvoiceImageScanner.scanCanvas(canvas, options);
+            return {
+                name,
+                passed: options.mode === 'closeup'
+                    ? result.foundLeft && !result.foundRight
+                    : result.foundPair,
+                elapsedMs: Math.round(performance.now() - startedAt),
+                attempts: result.attempts,
+                foundLeft: result.foundLeft,
+                foundRight: result.foundRight,
+                bestStrategy: result.bestStrategy
+            };
+        };
+
+        const run = async () => {
+            const standard = drawReceipt({});
+            const swapped = drawReceipt({ swapped: true, gap: 260 });
+            const rotated = rotateCanvas90(drawReceipt({ height: 2700, y: 1750 }));
+            const longReceipt = drawReceipt({ width: 1100, height: 5600, qrSize: 300, y: 4020, gap: 180 });
+            const singleLeft = drawReceipt({ width: 700, height: 700, qrSize: 420, y: 140, gap: 0, onlyLeft: true });
+            const results = [];
+            results.push(await scan('左右雙碼', standard));
+            results.push(await scan('左右互換與寬間距', swapped));
+            results.push(await scan('旋轉 90 度', rotated));
+            results.push(await scan('長發票與高密度右碼', longReceipt));
+            results.push(await scan('單一左碼特寫', singleLeft, { mode: 'closeup' }));
+            const passed = results.every(result => result.passed);
+            document.getElementById('result').textContent = JSON.stringify({ passed, syntheticOnly: true, results }, null, 2);
+            document.body.dataset.testStatus = passed ? 'passed' : 'failed';
+        };
+
+        run().catch(error => {
+            document.getElementById('result').textContent = error.stack || error.message;
+            document.body.dataset.testStatus = 'failed';
+        });
+    </script>
+</body>
+</html>
