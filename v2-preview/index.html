@@ -11,8 +11,8 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
-    <script src="./invoice-image-scanner.js?v=2.2.0-rc3"></script>
-    <script src="./invoice-qr-parser.js?v=2.2.0-rc3"></script>
+    <script src="./invoice-image-scanner.js"></script>
+    <script src="./invoice-qr-parser.js"></script>
     <script src="./receipt-ocr.js?v=2.2.0-preview"></script>
 
     <style>
@@ -46,7 +46,7 @@
         const db = getFirestore(app);
         const FIREBASE_APP_ID = 'spliteasy-2026';
         const APP_VERSION = '2.2.0-preview';
-        const BUILD_ID = 'v2.2.0-rc3';
+        const BUILD_ID = 'v2.2.0-rc2';
         // 預覽版使用完全獨立的資料空間與首頁索引，避免測試寫入 v2.1 正式帳本。
         const DATA_SPACE = 'spliteasy-v2-2-preview';
         const USER_INDEX_SPACE = 'spliteasy-v2-2-preview';
@@ -374,7 +374,1672 @@
                             <button onClick={() => window.location.assign(window.location.pathname)} className="w-full mt-3 p-3 rounded-xl bg-slate-100 text-slate-600 font-bold">回到測試版首頁</button>
                             <p className="mt-5 text-[11px] text-slate-400">Split Easy v{APP_VERSION} · {BUILD_ID}</p>
                         </div>
-                    </div>…36503 tokens truncated…                      setActiveProjectData(null);
+                    </div>
+                );
+            }
+        }
+
+        const VersionBadge = () => <span className="text-[10px] font-bold text-slate-400">v{APP_VERSION} · {BUILD_ID}</span>;
+
+        const DialogModal = ({ dialog, onClose }) => {
+            if (!dialog) return null;
+            return (
+                <div className="fixed inset-0 bg-black/60 z-[9999] flex items-center justify-center p-4 animate-fade-in">
+                    <div className="bg-white rounded-3xl p-6 w-full max-w-sm shadow-2xl transform scale-100 transition-transform">
+                        <div className="flex items-center gap-3 mb-4">
+                            {dialog.type === 'confirm' ? 
+                                <div className="w-10 h-10 rounded-full bg-orange-100 flex items-center justify-center text-orange-500"><i className="fa-solid fa-circle-question text-xl"></i></div> :
+                                <div className="w-10 h-10 rounded-full bg-teal-100 flex items-center justify-center text-teal-600"><i className="fa-solid fa-circle-info text-xl"></i></div>
+                            }
+                            <h3 className="font-bold text-lg">{dialog.title || '系統提示'}</h3>
+                        </div>
+                        <p className="text-slate-600 text-sm mb-6 whitespace-pre-wrap">{dialog.message}</p>
+                        <div className="flex gap-3 justify-end">
+                            {dialog.type === 'confirm' && <button onClick={onClose} className="px-5 py-2.5 rounded-xl bg-slate-100 text-slate-600 font-bold hover:bg-slate-200">取消</button>}
+                            <button onClick={() => { if(dialog.onConfirm) dialog.onConfirm(); onClose(); }} className="px-5 py-2.5 rounded-xl bg-slate-800 text-white font-bold shadow-md hover:bg-slate-900">
+                                {dialog.confirmText || '確定'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const ShareInviteModal = ({ invite, onClose }) => {
+            const [copyStatus, setCopyStatus] = useState('');
+            if (!invite) return null;
+
+            const handleCopy = async () => {
+                const copied = await copyToClipboard(invite.url);
+                setCopyStatus(copied ? '已複製到剪貼簿' : '無法自動複製，請長按下方網址複製');
+            };
+
+            const handleSystemShare = async () => {
+                if (!navigator.share) {
+                    setCopyStatus('此瀏覽器沒有系統分享功能，請使用複製連結');
+                    return;
+                }
+                try {
+                    await navigator.share({
+                        title: 'Split Easy 共編邀請',
+                        text: `邀請你一起編輯「${invite.projectName}」`,
+                        url: invite.url
+                    });
+                } catch (error) {
+                    if (error.name !== 'AbortError') setCopyStatus('無法開啟系統分享，請改用複製連結');
+                }
+            };
+
+            return (
+                <div className="fixed inset-0 bg-black/60 z-[9999] flex items-center justify-center p-4 animate-fade-in">
+                    <div className="bg-white rounded-3xl p-6 w-full max-w-sm shadow-2xl">
+                        <div className="flex items-center gap-3 mb-3">
+                            <div className="w-10 h-10 rounded-full bg-teal-100 flex items-center justify-center text-teal-600"><i className="fa-solid fa-user-group"></i></div>
+                            <div><h3 className="font-bold text-lg">共編連結已建立</h3><p className="text-xs text-slate-400">只有收到這個網址的人能申請加入</p></div>
+                        </div>
+                        <label className="block text-xs font-bold text-slate-500 mb-2">可見、可長按複製的完整網址</label>
+                        <textarea readOnly value={invite.url} onFocus={event => event.target.select()} className="w-full h-24 p-3 text-xs bg-slate-50 border border-slate-200 rounded-xl text-slate-600 break-all resize-none" />
+                        {copyStatus && <p className={`mt-2 text-xs font-bold ${copyStatus.startsWith('已複製') ? 'text-teal-600' : 'text-amber-600'}`}>{copyStatus}</p>}
+                        <div className="grid grid-cols-2 gap-3 mt-5">
+                            <button onClick={handleCopy} className="p-3 rounded-xl bg-slate-800 text-white font-bold"><i className="fa-solid fa-copy mr-2"></i>複製連結</button>
+                            <button onClick={handleSystemShare} className="p-3 rounded-xl bg-teal-600 text-white font-bold"><i className="fa-solid fa-share-nodes mr-2"></i>系統分享</button>
+                        </div>
+                        <button onClick={onClose} className="w-full mt-3 p-3 rounded-xl bg-slate-100 text-slate-600 font-bold">完成</button>
+                    </div>
+                </div>
+            );
+        };
+
+        const CollaborationManagerModal = ({ project, user, onClose, onCreateInvite, requestConfirm, showMessage }) => {
+            const [members, setMembers] = useState([]);
+            const [invites, setInvites] = useState([]);
+            const [isLoading, setIsLoading] = useState(true);
+            const [busyKey, setBusyKey] = useState('');
+
+            const loadData = async () => {
+                setIsLoading(true);
+                try {
+                    const [memberSnapshot, inviteSnapshot] = await Promise.all([
+                        getDocs(collection(db, 'apps', DATA_SPACE, 'projects', project.id, 'members')),
+                        getDocs(collection(db, 'apps', DATA_SPACE, 'projects', project.id, 'invites'))
+                    ]);
+                    const loadedMembers = memberSnapshot.docs.map(memberDoc => ({ id: memberDoc.id, ...memberDoc.data() }))
+                        .sort((left, right) => left.role === 'owner' ? -1 : right.role === 'owner' ? 1 : String(left.joinedAt || '').localeCompare(String(right.joinedAt || '')));
+                    const loadedInvites = inviteSnapshot.docs.map(inviteDoc => ({ id: inviteDoc.id, ...inviteDoc.data() }))
+                        .sort((left, right) => String(right.createdAt || '').localeCompare(String(left.createdAt || '')));
+                    setMembers(loadedMembers);
+                    setInvites(loadedInvites);
+                } catch (error) {
+                    console.error('Load collaboration manager error:', error);
+                    showMessage({ title: '無法載入共編管理', message: '請確認網路連線與 Firebase 權限後再試。' });
+                } finally {
+                    setIsLoading(false);
+                }
+            };
+
+            useEffect(() => { loadData(); }, [project.id]);
+
+            const formatDateTime = value => {
+                if (!value) return '時間不明';
+                const date = new Date(value);
+                return Number.isNaN(date.getTime()) ? '時間不明' : date.toLocaleString('zh-TW', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+            };
+
+            const createInvite = async () => {
+                setBusyKey('create');
+                try {
+                    const created = await onCreateInvite();
+                    if (created) await loadData();
+                } finally {
+                    setBusyKey('');
+                }
+            };
+
+            const removeMember = member => requestConfirm({
+                type: 'confirm',
+                title: '移除共編成員',
+                message: `確定要移除「${member.displayName || member.email || '這位成員'}」嗎？\n\n移除後會立即失去此專案的讀寫權限，對方的 v2.2 測試版首頁索引也會在同一批操作中移除。`,
+                confirmText: '確認移除',
+                onConfirm: async () => {
+                    setBusyKey(`member-${member.id}`);
+                    try {
+                        const batch = writeBatch(db);
+                        batch.delete(memberRefFor(project.id, member.id));
+                        batch.delete(userProjectRefFor(member.id, project.id));
+                        await batch.commit();
+                        await loadData();
+                        showMessage({ title: '已移除成員', message: '此帳號已無法再開啟或修改專案，首頁索引也已同步移除。' });
+                    } catch (error) {
+                        console.error('Remove collaborator error:', error);
+                        showMessage({ title: '移除失敗', message: '目前無法移除這位成員，請稍後再試。' });
+                    } finally {
+                        setBusyKey('');
+                    }
+                }
+            });
+
+            const revokeInvite = invite => requestConfirm({
+                type: 'confirm',
+                title: '撤銷邀請連結',
+                message: '撤銷後，尚未加入的人即使持有這個舊連結也無法加入；已加入的成員不受影響。',
+                confirmText: '確認撤銷',
+                onConfirm: async () => {
+                    setBusyKey(`invite-${invite.id}`);
+                    try {
+                        await setDoc(inviteRefFor(project.id, invite.id), {
+                            status: 'revoked',
+                            revokedAt: new Date().toISOString(),
+                            revokedBy: user.uid
+                        }, { merge: true });
+                        await loadData();
+                        showMessage({ title: '邀請已撤銷', message: '舊連結已失效；需要時可建立新的邀請連結。' });
+                    } catch (error) {
+                        console.error('Revoke invite error:', error);
+                        showMessage({ title: '撤銷失敗', message: '目前無法撤銷這個邀請，請稍後再試。' });
+                    } finally {
+                        setBusyKey('');
+                    }
+                }
+            });
+
+            const activeInvites = invites.filter(invite => invite.status === 'active');
+            const inactiveInvites = invites.filter(invite => invite.status !== 'active');
+
+            return (
+                <div className="fixed inset-0 bg-black/60 z-[9997] flex items-end sm:items-center justify-center sm:p-4 animate-fade-in">
+                    <div className="bg-white rounded-t-3xl sm:rounded-3xl w-full max-w-md max-h-[92vh] overflow-y-auto shadow-2xl">
+                        <div className="sticky top-0 bg-white z-10 px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+                            <div><h3 className="font-black text-lg">共編成員與邀請</h3><p className="text-xs text-slate-400">只有專案擁有者可以管理</p></div>
+                            <button onClick={onClose} className="w-9 h-9 rounded-full bg-slate-100 text-slate-500"><i className="fa-solid fa-xmark"></i></button>
+                        </div>
+                        <div className="p-5 space-y-6">
+                            <button onClick={createInvite} disabled={busyKey === 'create'} className="w-full p-4 rounded-xl bg-teal-600 disabled:opacity-50 text-white font-black shadow-md"><i className={`fa-solid ${busyKey === 'create' ? 'fa-spinner fa-spin' : 'fa-user-plus'} mr-2`}></i>建立新的共編連結</button>
+
+                            {isLoading ? <div className="py-12 text-center text-slate-400"><i className="fa-solid fa-spinner fa-spin text-xl"></i><p className="text-sm mt-2">正在載入共編資料…</p></div> : (
+                                <>
+                                    <section>
+                                        <div className="flex items-center justify-between mb-3"><h4 className="font-black text-slate-800">專案成員</h4><span className="text-xs bg-slate-100 text-slate-500 px-2 py-1 rounded-full">{members.length} 人</span></div>
+                                        <div className="space-y-2">
+                                            {members.map(member => {
+                                                const isOwner = member.role === 'owner' || member.id === project.ownerId;
+                                                return <div key={member.id} className="rounded-xl border border-slate-100 bg-slate-50 p-3 flex items-center gap-3"><div className={`w-9 h-9 rounded-full flex items-center justify-center ${isOwner ? 'bg-amber-100 text-amber-600' : 'bg-blue-100 text-blue-600'}`}><i className={`fa-solid ${isOwner ? 'fa-crown' : 'fa-user'}`}></i></div><div className="min-w-0 flex-1"><p className="font-bold text-sm truncate">{member.displayName || member.email || '未命名成員'} {member.id === user.uid && <span className="text-teal-600 text-[10px]">（你）</span>}</p><p className="text-[11px] text-slate-400 truncate">{member.email || (isOwner ? '專案擁有者' : 'Google 帳號')}</p></div>{isOwner ? <span className="text-[10px] font-bold text-amber-600 bg-amber-50 px-2 py-1 rounded-full">擁有者</span> : <button onClick={() => removeMember(member)} disabled={busyKey === `member-${member.id}`} className="px-3 py-2 rounded-lg bg-red-50 text-red-500 text-xs font-bold disabled:opacity-40">移除</button>}</div>;
+                                            })}
+                                        </div>
+                                    </section>
+
+                                    <section>
+                                        <div className="flex items-center justify-between mb-3"><h4 className="font-black text-slate-800">有效邀請連結</h4><span className="text-xs bg-teal-50 text-teal-600 px-2 py-1 rounded-full">{activeInvites.length} 組</span></div>
+                                        <div className="space-y-2">
+                                            {activeInvites.length === 0 && <div className="rounded-xl border border-dashed border-slate-200 p-5 text-center text-xs text-slate-400">目前沒有可用的邀請連結</div>}
+                                            {activeInvites.map(invite => <div key={invite.id} className="rounded-xl border border-teal-100 bg-teal-50 p-3 flex items-center gap-3"><div className="w-9 h-9 rounded-full bg-white text-teal-600 flex items-center justify-center"><i className="fa-solid fa-link"></i></div><div className="min-w-0 flex-1"><p className="font-bold text-sm">邀請碼 …{invite.id.slice(-8)}</p><p className="text-[11px] text-slate-400">建立於 {formatDateTime(invite.createdAt)}</p></div><button onClick={() => revokeInvite(invite)} disabled={busyKey === `invite-${invite.id}`} className="px-3 py-2 rounded-lg bg-white text-red-500 text-xs font-bold disabled:opacity-40">撤銷</button></div>)}
+                                        </div>
+                                    </section>
+
+                                    {inactiveInvites.length > 0 && <details className="rounded-xl border border-slate-100 bg-slate-50 p-3"><summary className="cursor-pointer text-xs font-bold text-slate-500">查看已失效邀請（{inactiveInvites.length}）</summary><div className="mt-3 space-y-2">{inactiveInvites.map(invite => <div key={invite.id} className="flex items-center justify-between text-xs text-slate-400"><span>…{invite.id.slice(-8)}</span><span>{invite.status === 'revoked' ? '已撤銷' : '已使用／失效'}</span></div>)}</div></details>}
+                                </>
+                            )}
+                            <div className="rounded-xl bg-amber-50 border border-amber-100 p-3 text-xs text-amber-800 leading-relaxed"><i className="fa-solid fa-circle-info mr-1"></i>撤銷邀請只會阻止新成員加入；若要停止既有成員存取，請在「專案成員」中將他移除。</div>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const WalletSetupScreen = ({ people, onUpdate, onNext, onBack, showMessage }) => {
+            const [localPeople, setLocalPeople] = useState(people);
+            const [selectedId, setSelectedId] = useState(null);
+            
+            const handleBind = (childId, parentId) => { setLocalPeople(prev => prev.map(p => p.id === childId ? { ...p, payerId: parentId } : p)); };
+            const handleUnbind = (childId) => { setLocalPeople(prev => prev.map(p => p.id === childId ? { ...p, payerId: p.id } : p)); };
+            const handleSave = () => { onUpdate(localPeople); onNext(); };
+
+            const handleAvatarClick = (id, isMaster) => {
+                if (selectedId === null) {
+                    const hasChildren = localPeople.some(p => p.payerId === id && p.id !== id);
+                    if (isMaster && hasChildren) return showMessage({ message: "這個錢包已經有成員了，請先將成員移出，才能移動這個錢包主。" });
+                    setSelectedId(id);
+                } else {
+                    if (selectedId === id) { setSelectedId(null); return; }
+                    handleBind(selectedId, id);
+                    setSelectedId(null);
+                }
+            };
+
+            const wallets = localPeople.filter(p => !p.payerId || p.payerId === p.id).map(master => ({
+                master, children: localPeople.filter(child => child.payerId === master.id && child.id !== master.id)
+            }));
+
+            return (
+                <div className="p-6 h-full flex flex-col animate-fade-in">
+                    <h2 className="text-2xl font-bold mb-2">誰幫誰付錢？</h2>
+                    <p className="text-slate-500 text-sm mb-6">點選 A 頭像，再點選 B 頭像，即可將 A 併入 B 的錢包（共同結算）。</p>
+
+                    <div className="flex-1 overflow-y-auto content-start grid grid-cols-2 gap-4 auto-rows-min">
+                        {wallets.map(w => {
+                            const masterName = getPersonNameHelper(w.master.id, localPeople);
+                            return (
+                                <div key={w.master.id} onClick={() => handleAvatarClick(w.master.id, true)} className={`relative p-4 rounded-2xl border-2 transition-all flex flex-col items-center justify-center min-h-[140px] ${selectedId === w.master.id ? 'border-teal-500 bg-teal-50 ring-2 ring-teal-200 scale-105 z-10' : 'border-slate-200 bg-white hover:border-teal-300'} ${selectedId !== null && selectedId !== w.master.id ? 'animate-pulse cursor-pointer border-dashed border-teal-400' : ''}`}>
+                                    <div className="w-16 h-16 rounded-full bg-gradient-to-br from-orange-100 to-amber-100 flex items-center justify-center text-2xl font-bold text-orange-600 shadow-sm mb-2">{masterName[0]}</div>
+                                    <span className="font-bold text-slate-700 truncate max-w-full">{masterName}</span>
+                                    {w.children.length > 0 && <span className="text-xs text-slate-400">錢包主</span>}
+                                    {w.children.length > 0 && (
+                                        <div className="mt-3 flex flex-wrap justify-center gap-2 bg-slate-50 w-full p-2 rounded-xl border border-slate-100">
+                                            {w.children.map(child => {
+                                                const childName = getPersonNameHelper(child.id, localPeople);
+                                                return (
+                                                    <div key={child.id} onClick={(e) => { e.stopPropagation(); handleUnbind(child.id); }} className="flex items-center gap-1 bg-white px-2 py-1 rounded-full shadow-sm text-xs text-slate-600 border border-slate-200 cursor-pointer hover:bg-red-50 hover:text-red-500 hover:border-red-200">
+                                                        <div className="w-4 h-4 rounded-full bg-slate-200 flex items-center justify-center text-[8px]">{childName[0]}</div>{childName}<i className="fa-solid fa-xmark ml-1 opacity-50"></i>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    )}
+                                    {selectedId === w.master.id && <div className="absolute -top-2 -right-2 bg-teal-600 text-white text-xs px-2 py-1 rounded-full animate-bounce">移動中...</div>}
+                                </div>
+                            );
+                        })}
+                    </div>
+
+                    <div className="mt-auto pt-4 flex gap-4">
+                        <button onClick={onBack} className="flex-1 p-4 rounded-xl bg-slate-100 font-bold text-slate-600">上一步</button>
+                        <button onClick={handleSave} className="flex-1 p-4 rounded-xl bg-teal-600 font-bold text-white shadow-lg">確認分組 ({wallets.length} 組)</button>
+                    </div>
+                </div>
+            );
+        };
+
+        const SplashScreen = ({ fadeOut }) => (
+            <div className={`fixed inset-0 bg-teal-500 flex flex-col items-center justify-center z-50 transition-opacity duration-500 ${fadeOut ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
+                <div className="bg-white p-6 rounded-3xl shadow-2xl transform scale-110 mb-8 animate-bounce">
+                    <i className="fa-solid fa-calculator text-6xl text-teal-600"></i>
+                </div>
+                <h1 className="text-3xl font-black text-white tracking-wider mb-2">Split Easy</h1>
+                <p className="text-teal-100 text-lg font-medium">P人也懂用的「出遊分帳器」</p>
+                <p className="text-teal-200 text-sm font-bold mt-1 tracking-widest">(專屬邀請共編版)</p>
+                <div className="mt-8 flex gap-2">
+                    <div className="w-2 h-2 bg-white rounded-full animate-ping"></div>
+                    <div className="w-2 h-2 bg-white rounded-full animate-ping delay-75"></div>
+                    <div className="w-2 h-2 bg-white rounded-full animate-ping delay-150"></div>
+                </div>
+            </div>
+        );
+
+        const LoginScreen = ({ onLogin, isLoggingIn, error, hasInvite }) => (
+            <div className="min-h-screen bg-gradient-to-b from-teal-500 to-teal-700 px-6 py-10 flex items-center justify-center">
+                <div className="w-full max-w-sm bg-white rounded-3xl shadow-2xl p-7 text-center">
+                    <div className="w-20 h-20 mx-auto bg-teal-50 rounded-3xl flex items-center justify-center mb-5">
+                        <i className="fa-solid fa-calculator text-4xl text-teal-600"></i>
+                    </div>
+                    <h1 className="text-3xl font-black text-slate-800">Split Easy</h1>
+                    <p className="text-slate-500 mt-2">登入後，只會看到你建立或朋友分享給你的記帳專案。</p>
+                    {hasInvite && <div className="mt-4 p-3 bg-amber-50 text-amber-700 rounded-xl text-sm font-bold"><i className="fa-solid fa-envelope-open-text mr-2"></i>登入後就會加入朋友的共編專案</div>}
+                    {error && <div className="mt-4 p-3 bg-red-50 text-red-600 rounded-xl text-sm text-left">{error}</div>}
+                    <button onClick={onLogin} disabled={isLoggingIn} className="w-full mt-6 p-4 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 shadow-sm font-bold text-slate-700 flex items-center justify-center gap-3 disabled:opacity-60">
+                        {isLoggingIn ? <i className="fa-solid fa-spinner fa-spin text-teal-600"></i> : <i className="fa-brands fa-google text-red-500"></i>}
+                        {isLoggingIn ? '正在開啟 Google…' : '使用 Google 帳號登入'}
+                    </button>
+                    <p className="mt-3 text-xs text-teal-700 bg-teal-50 rounded-xl p-3"><i className="fa-solid fa-window-restore mr-2"></i>將開啟 Google 安全登入視窗；若視窗未出現，請改用外部 Chrome／Safari。</p>
+                    <p className="mt-5 text-xs text-slate-400 leading-relaxed">Google 登入只用來辨認「哪些專案屬於你」。我們不會取得你的 Google 密碼。</p>
+                    <div className="mt-3"><VersionBadge /></div>
+                </div>
+            </div>
+        );
+
+        const ProjectList = ({ projects, onSelect, onCreate, onRemove, isLoading, warning }) => (
+            <div className="p-6 animate-fade-in pb-24">
+                <div className="mb-6">
+                    <div>
+                        <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2">我的記帳本 <span className="relative flex h-3 w-3"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-teal-400 opacity-75"></span><span className="relative inline-flex rounded-full h-3 w-3 bg-teal-500"></span></span></h2>
+                        <p className="text-slate-500 text-sm">你建立的，以及朋友分享給你的專案</p>
+                    </div>
+                </div>
+                {warning && <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-relaxed text-amber-800"><i className="fa-solid fa-shield-halved mr-2"></i>{warning}</div>}
+                {isLoading ? (
+                    <div className="text-center py-12"><i className="fa-solid fa-spinner fa-spin text-2xl text-teal-500"></i><p className="text-sm text-slate-400 mt-3">正在讀取你的雲端專案…</p></div>
+                ) : projects.length === 0 ? (
+                    <div className="text-center py-12 bg-white rounded-2xl border-2 border-dashed border-slate-200">
+                        <i className="fa-regular fa-folder-open text-4xl text-slate-300 mb-2"></i>
+                        <p className="text-slate-400">目前沒有任何紀錄</p>
+                        <p className="text-slate-400 text-xs">趕快開始一個新的旅程吧！</p>
+                    </div>
+                ) : (
+                    <div className="space-y-4">
+                        {projects.map(p => (
+                            <div key={p.id} onClick={() => onSelect(p.id)} className={`bg-white p-5 rounded-2xl shadow-sm border transition-all cursor-pointer active:scale-98 group relative ${p.accessPending ? 'border-amber-200 hover:border-amber-300' : 'border-slate-100 hover:border-teal-300'}`}>
+                                <div className="flex justify-between items-start">
+                                    <div className="flex gap-4">
+                                        <div className={`p-3 rounded-full h-fit w-12 h-12 flex items-center justify-center ${p.type === 'travel' ? 'bg-blue-100 text-blue-600' : 'bg-orange-100 text-orange-600'}`}><i className={`fa-solid ${p.type === 'travel' ? 'fa-map' : 'fa-mug-hot'} text-xl`}></i></div>
+                                        <div>
+                                            <h3 className="font-bold text-lg text-slate-800">{p.name}</h3>
+                                            <p className="text-xs text-slate-400 mt-1">{p.accessPending ? '等待重新確認雲端權限' : `最後更新：${p.updatedAt ? new Date(p.updatedAt).toLocaleString('zh-TW') : '剛建立'}`}</p>
+                                            <div className="flex gap-2 mt-2">
+                                                <span className={`text-[10px] px-2 py-0.5 rounded-full ${p.type === 'travel' ? 'bg-blue-50 text-blue-500' : 'bg-orange-50 text-orange-500'}`}>{p.type === 'travel' ? '多日旅遊' : '單次聚餐'}</span>
+                                                <span className={`text-[10px] px-2 py-0.5 rounded-full ${p.currentUserRole === 'owner' ? 'bg-teal-50 text-teal-600' : 'bg-slate-100 text-slate-500'}`}>{p.currentUserRole === 'owner' ? '我建立的' : '朋友分享'}</span>
+                                                {p.accessPending && <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-50 text-amber-600">權限待確認</span>}
+                                            </div>
+                                        </div>
+                                    </div>
+                                    {!p.accessPending && <button onClick={(e) => onRemove(p, e)} aria-label={p.currentUserRole === 'owner' ? `刪除${p.name}` : `離開${p.name}`} className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition"><i className={`fa-solid ${p.currentUserRole === 'owner' ? 'fa-trash' : 'fa-right-from-bracket'}`}></i></button>}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                )}
+                <button onClick={onCreate} className="fixed bottom-8 right-6 w-14 h-14 bg-teal-600 text-white rounded-full shadow-xl flex items-center justify-center hover:scale-110 transition active:scale-95 z-20"><i className="fa-solid fa-plus text-xl"></i></button>
+            </div>
+        );
+
+        const CreateProjectScreen = ({ onCancel, onCreate, showMessage }) => {
+            const [type, setType] = useState(null);
+            const handleCreate = () => { if (!type) return showMessage({ message: "請選擇一種類型" }); onCreate(type); };
+            return (
+                <div className="p-6 h-full flex flex-col animate-slide-up">
+                    <h2 className="text-2xl font-bold mb-2">開始新的記帳</h2>
+                    <p className="text-sm text-slate-500 mb-6">先選擇用途，下一步再設定這次活動的名稱。</p>
+                    <div className="flex-1 space-y-6">
+                        <div>
+                            <label className="block text-sm font-bold text-slate-500 mb-2">選擇記帳類型</label>
+                            <div className="grid grid-cols-1 gap-4">
+                                <button onClick={() => setType('dining')} className={`p-4 rounded-2xl border-2 flex items-center gap-4 transition-all ${type === 'dining' ? 'border-orange-500 bg-orange-50 ring-2 ring-orange-200' : 'border-slate-100 bg-white hover:border-orange-200'}`}>
+                                    <div className="bg-orange-100 p-3 rounded-full text-orange-600 w-12 h-12 flex items-center justify-center"><i className="fa-solid fa-mug-hot text-xl"></i></div>
+                                    <div className="text-left"><h3 className="font-bold text-slate-800">單次聚餐</h3><p className="text-xs text-slate-500">適合餐廳拆帳、服務費計算</p></div>
+                                    {type === 'dining' && <i className="fa-solid fa-circle-check ml-auto text-orange-500"></i>}
+                                </button>
+                                <button onClick={() => setType('travel')} className={`p-4 rounded-2xl border-2 flex items-center gap-4 transition-all ${type === 'travel' ? 'border-blue-500 bg-blue-50 ring-2 ring-blue-200' : 'border-slate-100 bg-white hover:border-blue-200'}`}>
+                                    <div className="bg-blue-100 p-3 rounded-full text-blue-600 w-12 h-12 flex items-center justify-center"><i className="fa-solid fa-map text-xl"></i></div>
+                                    <div className="text-left"><h3 className="font-bold text-slate-800">多日旅遊</h3><p className="text-xs text-slate-500">適合連續記帳、複雜代墊</p></div>
+                                    {type === 'travel' && <i className="fa-solid fa-circle-check ml-auto text-blue-500"></i>}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    <div className="mt-auto flex gap-4 pt-6">
+                        <button onClick={onCancel} className="flex-1 p-4 rounded-xl bg-slate-100 font-bold text-slate-600">取消</button>
+                        <button onClick={handleCreate} disabled={!type} className="flex-1 p-4 rounded-xl bg-teal-600 font-bold text-white shadow-lg disabled:opacity-50">開始設定</button>
+                    </div>
+                </div>
+            );
+        };
+
+        const TaiwanInvoiceScannerModal = ({ people, onClose, onApply, showMessage, applyLabel = '確認並匯入混合分攤' }) => {
+            const cameraInputRef = useRef(null);
+            const galleryInputRef = useRef(null);
+            const singleQrCameraInputRef = useRef(null);
+            const singleQrGalleryInputRef = useRef(null);
+            const [rawCodes, setRawCodes] = useState([]);
+            const [parsed, setParsed] = useState(null);
+            const [editableItems, setEditableItems] = useState([]);
+            const [isScanning, setIsScanning] = useState(false);
+            const [scanProgress, setScanProgress] = useState(null);
+            const [scanNotice, setScanNotice] = useState('');
+            const [needsCloseup, setNeedsCloseup] = useState(false);
+
+            const prepareEditableItems = (result) => {
+                if (result.status !== 'ready') {
+                    setEditableItems([]);
+                    return;
+                }
+                const participantIds = people.map(person => person.id);
+                let nextItems = (result.items || []).map((item, index) => ({
+                    id: `invoice-${Date.now()}-${index}`,
+                    name: item.name,
+                    amount: String(Math.round(item.amount * 100) / 100),
+                    participantIds: [...participantIds]
+                }));
+                const itemTotal = nextItems.reduce((sum, item) => sum + (parseFloat(item.amount) || 0), 0);
+                const invoiceTotal = result.invoice?.totalAmount || 0;
+                const difference = Math.round((invoiceTotal - itemTotal) * 100) / 100;
+                if (nextItems.length === 0 && invoiceTotal > 0) {
+                    nextItems = [{ id: `invoice-total-${Date.now()}`, name: '電子發票總額', amount: String(invoiceTotal), participantIds: [...participantIds] }];
+                } else if (invoiceTotal > 0 && Math.abs(difference) >= 0.01) {
+                    nextItems.push({ id: `invoice-adjustment-${Date.now()}`, name: difference < 0 ? '發票折扣／差額' : '發票稅額／差額', amount: String(difference), participantIds: [...participantIds] });
+                }
+                setEditableItems(nextItems);
+            };
+
+            const consumeCodes = (codes) => {
+                const uniqueCodes = [...new Set(codes.map(code => String(code || '').trim()).filter(Boolean))];
+                const result = parseTaiwanInvoiceQrCodes(uniqueCodes);
+                setRawCodes(uniqueCodes);
+                setParsed(result);
+                prepareEditableItems(result);
+                return result;
+            };
+
+            const handleFile = async (event, scanMode = 'receipt') => {
+                const file = event.target.files?.[0];
+                event.target.value = '';
+                if (!file) return;
+                if (!window.SplitEasyInvoiceImageScanner || !window.jsQR) return showMessage({ title: '掃描元件未載入', message: '請確認網路連線後重新開啟頁面。發票照片不會上傳。' });
+                setIsScanning(true);
+                setNeedsCloseup(false);
+                setScanNotice('');
+                try {
+                    const scanResult = await window.SplitEasyInvoiceImageScanner.scanFile(file, {
+                        onProgress: progress => setScanProgress(progress)
+                    });
+                    if (!scanResult.codes.length) {
+                        setNeedsCloseup(true);
+                        setScanNotice('整張照片已自動分區、放大並加強對比，仍未找到 QR。請補拍較清楚的 QR 特寫。');
+                        return;
+                    }
+
+                    const combinedCodes = [...new Set([...rawCodes, ...scanResult.codes])];
+                    const parseResult = consumeCodes(combinedCodes);
+                    const codeTypes = combinedCodes.map(code => window.SplitEasyInvoiceImageScanner.classifyCode(code));
+                    const foundLeft = codeTypes.includes('left');
+                    const foundRight = codeTypes.includes('right');
+                    const foundPair = foundLeft && foundRight;
+                    setNeedsCloseup(!foundPair && parseResult.status !== 'ready');
+                    if (foundPair) {
+                        setScanNotice('左右 QR 都已自動辨識完成，請核對下方品項與總額。');
+                    } else if (foundLeft) {
+                        setScanNotice(parseResult.status === 'ready' ? '已讀到發票資料；若品項不完整，可再補拍右方 QR 特寫。' : '已讀到左方 QR，請補拍右方 QR 特寫。');
+                    } else if (foundRight) {
+                        setScanNotice('已讀到右方 QR，請補拍左方 QR 特寫。');
+                    } else {
+                        setNeedsCloseup(true);
+                        setScanNotice('照片中找到其他 QR，但不是有效的臺灣電子發票左方 QR。');
+                    }
+                } catch (error) {
+                    console.warn('QR 掃描失敗：', error);
+                    setNeedsCloseup(true);
+                    setScanNotice(error?.message || '照片無法解析，請重新拍攝。');
+                } finally {
+                    setIsScanning(false);
+                    setScanProgress(null);
+                }
+            };
+
+            const updateEditableItem = (id, patch) => setEditableItems(items => items.map(item => item.id === id ? { ...item, ...patch } : item));
+            const removeEditableItem = (id) => setEditableItems(items => items.filter(item => item.id !== id));
+            const addEditableItem = () => setEditableItems(items => [...items, { id: `invoice-manual-${Date.now()}`, name: '', amount: '', participantIds: people.map(person => person.id) }]);
+            const currentTotal = editableItems.reduce((sum, item) => sum + (parseFloat(item.amount) || 0), 0);
+            const scannedTypes = rawCodes.map(code => window.SplitEasyInvoiceImageScanner?.classifyCode(code));
+            const hasLeftQr = scannedTypes.includes('left');
+            const hasRightQr = scannedTypes.includes('right');
+
+            const handleApply = () => {
+                const items = editableItems.filter(item => item.name.trim() && Number.isFinite(parseFloat(item.amount)) && parseFloat(item.amount) !== 0);
+                if (!parsed?.invoice || !items.length) return showMessage({ message: '請先讀取發票並保留至少一筆有效品項。' });
+                onApply({
+                    items,
+                    invoice: { ...parsed.invoice, importedAt: new Date().toISOString(), itemCount: items.length }
+                });
+                onClose();
+            };
+
+            return (
+                <div className="fixed inset-0 bg-black/60 z-[9998] flex items-end sm:items-center justify-center sm:p-4 animate-fade-in">
+                    <div className="bg-white rounded-t-3xl sm:rounded-3xl w-full max-w-md max-h-[92vh] overflow-y-auto shadow-2xl">
+                        <div className="sticky top-0 bg-white z-10 px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+                            <div><h3 className="font-black text-lg">掃描臺灣電子發票</h3><p className="text-xs text-slate-400">拍一張完整發票，自動尋找左右 QR</p></div>
+                            <button onClick={onClose} className="w-9 h-9 rounded-full bg-slate-100 text-slate-500"><i className="fa-solid fa-xmark"></i></button>
+                        </div>
+                        <div className="p-5 space-y-5">
+                            <div className="rounded-2xl bg-teal-50 border border-teal-100 p-4">
+                                <p className="font-bold text-teal-800 text-sm"><i className="fa-solid fa-receipt mr-2"></i>整張發票一次拍</p>
+                                <p className="text-xs text-teal-700 mt-1">把發票攤平，讓左右 QR 都完整入鏡、對焦清楚並避開反光；照片只會留在這支手機內辨識。</p>
+                                <div className="grid grid-cols-2 gap-3 mt-3">
+                                    <button onClick={() => cameraInputRef.current?.click()} disabled={isScanning} className="bg-teal-600 disabled:opacity-50 text-white p-3 rounded-xl font-bold shadow-sm">
+                                        <i className="fa-solid fa-camera mr-2"></i>拍照辨識
+                                    </button>
+                                    <button onClick={() => galleryInputRef.current?.click()} disabled={isScanning} className="bg-white border border-teal-300 disabled:opacity-50 text-teal-700 p-3 rounded-xl font-bold shadow-sm">
+                                        <i className="fa-solid fa-images mr-2"></i>從相簿選取
+                                    </button>
+                                </div>
+                                <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" onChange={event => handleFile(event, 'receipt')} className="hidden" />
+                                <input ref={galleryInputRef} type="file" accept="image/*" onChange={event => handleFile(event, 'receipt')} className="hidden" />
+                                {isScanning && scanProgress && <div className="mt-3"><div className="h-2 bg-teal-100 rounded-full overflow-hidden"><div className="h-full bg-teal-500 transition-all" style={{ width: `${Math.round(scanProgress.current / scanProgress.total * 100)}%` }}></div></div><p className="mt-1 text-[11px] text-teal-700">正在檢查：{scanProgress.label}</p></div>}
+                            </div>
+
+                            {(scanNotice || rawCodes.length > 0) && <div className={`rounded-xl border p-3 ${hasLeftQr && (hasRightQr || parsed?.status === 'ready') ? 'bg-emerald-50 border-emerald-100 text-emerald-800' : 'bg-amber-50 border-amber-100 text-amber-800'}`}><div className="flex gap-2 mb-2"><span className={`px-2 py-1 rounded-full text-[11px] font-bold ${hasLeftQr ? 'bg-emerald-100 text-emerald-700' : 'bg-white/70 text-slate-400'}`}>{hasLeftQr ? '✓ 左方 QR' : '○ 左方 QR'}</span><span className={`px-2 py-1 rounded-full text-[11px] font-bold ${hasRightQr ? 'bg-emerald-100 text-emerald-700' : 'bg-white/70 text-slate-400'}`}>{hasRightQr ? '✓ 右方 QR' : '○ 右方 QR'}</span></div>{scanNotice && <p className="text-xs leading-relaxed">{scanNotice}</p>}</div>}
+
+                            {(needsCloseup || (rawCodes.length > 0 && !hasRightQr)) && <div className="rounded-xl border border-slate-200 p-3"><p className="text-xs font-bold text-slate-700">需要補拍時</p><p className="text-xs text-slate-500 mt-1">只把尚未讀到的單一 QR 放大拍清楚，不需要輸入看不懂的 QR 原始文字。</p><div className="grid grid-cols-2 gap-3 mt-3"><button onClick={() => singleQrCameraInputRef.current?.click()} disabled={isScanning} className="p-3 rounded-xl bg-slate-800 disabled:opacity-50 text-white text-sm font-bold"><i className="fa-solid fa-camera mr-2"></i>拍攝 QR 特寫</button><button onClick={() => singleQrGalleryInputRef.current?.click()} disabled={isScanning} className="p-3 rounded-xl border border-slate-300 bg-white disabled:opacity-50 text-slate-700 text-sm font-bold"><i className="fa-solid fa-images mr-2"></i>從相簿選 QR</button></div><input ref={singleQrCameraInputRef} type="file" accept="image/*" capture="environment" onChange={event => handleFile(event, 'closeup')} className="hidden" /><input ref={singleQrGalleryInputRef} type="file" accept="image/*" onChange={event => handleFile(event, 'closeup')} className="hidden" /></div>}
+
+                            {parsed && (
+                                <div className={`rounded-2xl border p-4 ${parsed.status === 'ready' ? 'bg-white border-slate-200' : 'bg-amber-50 border-amber-200'}`}>
+                                    <p className={`text-sm font-bold ${parsed.status === 'ready' ? 'text-slate-800' : 'text-amber-800'}`}>{parsed.message}</p>
+                                    {parsed.status === 'ready' && <div className="grid grid-cols-2 gap-3 mt-3 text-xs"><div><span className="text-slate-400">發票號碼</span><p className="font-bold">{parsed.invoice.invoiceNumber}</p></div><div><span className="text-slate-400">日期</span><p className="font-bold">{parsed.invoice.date || '未提供'}</p></div><div><span className="text-slate-400">發票總額</span><p className="font-bold text-teal-700">{formatMoney(parsed.invoice.totalAmount)}</p></div><div><span className="text-slate-400">賣方統編</span><p className="font-bold">{parsed.invoice.sellerId}</p></div></div>}
+                                </div>
+                            )}
+
+                            {parsed?.status === 'ready' && (
+                                <div className="space-y-3">
+                                    <div className="flex items-end justify-between"><div><h4 className="font-bold">確認匯入品項</h4><p className="text-xs text-slate-400">名稱與金額都可以修改</p></div><span className="text-sm font-black text-teal-700">{formatMoney(currentTotal)}</span></div>
+                                    {editableItems.map((item, index) => <div key={item.id} className="grid grid-cols-[1fr_100px_32px] gap-2 items-center"><input value={item.name} onChange={event => applyInputValue(event, value => updateEditableItem(item.id, { name: value }))} className="p-3 rounded-xl border border-slate-200 bg-slate-50 text-sm" placeholder={`品項 ${index + 1}`} /><input type="number" value={item.amount} onChange={event => updateEditableItem(item.id, { amount: event.target.value })} className="p-3 rounded-xl border border-slate-200 bg-slate-50 text-sm text-right" placeholder="金額" /><button onClick={() => removeEditableItem(item.id)} className="text-slate-300 hover:text-red-500"><i className="fa-solid fa-trash"></i></button></div>)}
+                                    <button onClick={addEditableItem} className="w-full p-3 rounded-xl border-2 border-dashed border-slate-200 text-slate-500 text-sm font-bold"><i className="fa-solid fa-plus mr-2"></i>補一筆品項</button>
+                                </div>
+                            )}
+
+                            <div className="rounded-xl bg-amber-50 border border-amber-100 p-3 text-xs text-amber-800"><i className="fa-solid fa-triangle-exclamation mr-1"></i>本功能只解析發票 QR 內容，不會向財政部查驗真偽；匯入前請核對紙本總額。發票照片不會儲存或上傳。</div>
+                            <button onClick={handleApply} disabled={parsed?.status !== 'ready' || editableItems.length === 0} className="w-full p-4 rounded-xl bg-orange-500 disabled:opacity-40 text-white font-black shadow-lg">{applyLabel}</button>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        let tesseractLoaderPromise = null;
+        const loadTesseractRuntime = () => {
+            if (window.Tesseract) return Promise.resolve(window.Tesseract);
+            if (tesseractLoaderPromise) return tesseractLoaderPromise;
+            tesseractLoaderPromise = new Promise((resolve, reject) => {
+                const existingScript = document.getElementById('split-easy-tesseract');
+                const script = existingScript || document.createElement('script');
+                const handleLoaded = () => window.Tesseract ? resolve(window.Tesseract) : reject(new Error('OCR 元件載入失敗'));
+                script.addEventListener('load', handleLoaded, { once: true });
+                script.addEventListener('error', () => reject(new Error('無法載入本機 OCR 元件，請確認網路後重試。')), { once: true });
+                if (!existingScript) {
+                    script.id = 'split-easy-tesseract';
+                    script.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
+                    script.crossOrigin = 'anonymous';
+                    document.head.appendChild(script);
+                }
+            }).catch(error => {
+                tesseractLoaderPromise = null;
+                throw error;
+            });
+            return tesseractLoaderPromise;
+        };
+
+        const TravelReceiptCaptureModal = ({ people, defaultDay, onClose, onCreateDraft, showMessage }) => {
+            const cameraInputRef = useRef(null);
+            const galleryInputRef = useRef(null);
+            const workerRef = useRef(null);
+            const [mode, setMode] = useState(null);
+            const [language, setLanguage] = useState('eng');
+            const [processedImage, setProcessedImage] = useState(null);
+            const [isReading, setIsReading] = useState(false);
+            const [progress, setProgress] = useState({ status: '', value: 0 });
+            const [ocrResult, setOcrResult] = useState(null);
+            const [merchant, setMerchant] = useState('');
+            const [receiptDate, setReceiptDate] = useState('');
+            const [originalAmount, setOriginalAmount] = useState('');
+            const [currency, setCurrency] = useState('USD');
+            const [exchangeRate, setExchangeRate] = useState('');
+
+            useEffect(() => () => {
+                if (workerRef.current) workerRef.current.terminate().catch(() => {});
+            }, []);
+
+            const preferredCurrencyForLanguage = value => value.startsWith('jpn') ? 'JPY' : value.startsWith('kor') ? 'KRW' : value.startsWith('chi') ? 'TWD' : 'USD';
+
+            const fillParsedFields = (parsed) => {
+                setOcrResult(parsed);
+                setMerchant(parsed.merchant || '海外收據');
+                setReceiptDate(parsed.date || '');
+                setOriginalAmount(parsed.amount ? String(parsed.amount) : '');
+                setCurrency(parsed.currency || preferredCurrencyForLanguage(language));
+                setExchangeRate(parsed.currency === 'TWD' ? '1' : '');
+            };
+
+            const recognizeImage = async (imageDataUrl, selectedLanguage = language) => {
+                if (!imageDataUrl) return;
+                setIsReading(true);
+                setProgress({ status: '正在載入離線辨識元件', value: 0 });
+                try {
+                    if (!window.SplitEasyReceiptOcr) throw new Error('收據解析元件未載入，請重新整理頁面。');
+                    const Tesseract = await loadTesseractRuntime();
+                    const worker = await Tesseract.createWorker(selectedLanguage, undefined, {
+                        logger: message => {
+                            const labels = {
+                                'loading tesseract core': '載入文字辨識核心',
+                                'initializing tesseract': '初始化文字辨識',
+                                'loading language traineddata': '載入語言資料',
+                                'initializing api': '準備辨識',
+                                'recognizing text': '辨識收據文字'
+                            };
+                            setProgress({ status: labels[message.status] || '處理收據影像', value: message.progress || 0 });
+                        }
+                    });
+                    workerRef.current = worker;
+                    await worker.setParameters({ preserve_interword_spaces: '1' });
+                    const result = await worker.recognize(imageDataUrl);
+                    await worker.terminate();
+                    workerRef.current = null;
+                    const parsed = window.SplitEasyReceiptOcr.parseText(result.data.text, {
+                        preferredCurrency: preferredCurrencyForLanguage(selectedLanguage)
+                    });
+                    fillParsedFields(parsed);
+                    if (!parsed.amount) {
+                        showMessage({ title: '沒有可靠讀到總額', message: '你仍可直接在欄位中填入店名、幣別與金額，再繼續記帳。' });
+                    }
+                } catch (error) {
+                    console.error('Receipt OCR error:', error);
+                    setOcrResult({ amountConfident: false, currencyAmbiguous: true, dateAmbiguous: false, amountSourceLine: '' });
+                    showMessage({ title: '自動辨識未完成', message: `${error.message || '這張照片無法辨識。'}\n你仍可手動填寫下方資料，照片不會上傳。` });
+                } finally {
+                    setIsReading(false);
+                    setProgress({ status: '', value: 0 });
+                }
+            };
+
+            const handleFile = async event => {
+                const file = event.target.files?.[0];
+                event.target.value = '';
+                if (!file) return;
+                setOcrResult(null);
+                try {
+                    const prepared = await window.SplitEasyReceiptOcr.preprocessImage(file);
+                    setProcessedImage(prepared);
+                    await recognizeImage(prepared.dataUrl, language);
+                } catch (error) {
+                    console.error('Receipt image error:', error);
+                    showMessage({ title: '照片讀取失敗', message: error.message || '請改用 JPG 或 PNG 相片再試。' });
+                }
+            };
+
+            const handleTaiwanInvoice = ({ items, invoice }) => {
+                const total = invoice.totalAmount || items.reduce((sum, item) => sum + (parseFloat(item.amount) || 0), 0);
+                onCreateDraft({
+                    desc: `電子發票 ${invoice.invoiceNumber || ''}`.trim(),
+                    amount: total,
+                    day: defaultDay,
+                    receiptMeta: {
+                        source: 'taiwan-einvoice',
+                        invoiceNumber: invoice.invoiceNumber || '',
+                        receiptDate: invoice.date || '',
+                        currency: 'TWD',
+                        originalAmount: total,
+                        exchangeRate: 1,
+                        importedAt: new Date().toISOString()
+                    }
+                });
+            };
+
+            const handleCurrencyChange = nextCurrency => {
+                setCurrency(nextCurrency);
+                if (nextCurrency === 'TWD') setExchangeRate('1');
+                else if (currency === 'TWD' && exchangeRate === '1') setExchangeRate('');
+            };
+
+            const convertedAmount = (parseFloat(originalAmount) || 0) * (parseFloat(exchangeRate) || 0);
+            const handleApplyOverseas = () => {
+                const original = parseFloat(originalAmount);
+                const rate = parseFloat(exchangeRate);
+                if (!Number.isFinite(original) || original <= 0) return showMessage({ message: '請確認收據的原幣總額。' });
+                if (!Number.isFinite(rate) || rate <= 0) return showMessage({ message: '請填寫換算匯率，例如 1 日圓等於多少新臺幣。' });
+                const twdAmount = Math.round(original * rate * 100) / 100;
+                onCreateDraft({
+                    desc: merchant.trim() || '海外收據',
+                    amount: twdAmount,
+                    day: defaultDay,
+                    receiptMeta: {
+                        source: 'local-ocr',
+                        merchant: merchant.trim() || '海外收據',
+                        receiptDate,
+                        currency,
+                        originalAmount: original,
+                        exchangeRate: rate,
+                        importedAt: new Date().toISOString()
+                    }
+                });
+            };
+
+            if (mode === 'taiwan') {
+                return <TaiwanInvoiceScannerModal people={people} onClose={() => setMode(null)} onApply={handleTaiwanInvoice} showMessage={showMessage} applyLabel="使用這張發票繼續記帳" />;
+            }
+
+            return (
+                <div className="fixed inset-0 bg-black/60 z-[9998] flex items-end sm:items-center justify-center sm:p-4 animate-fade-in">
+                    <div className="bg-white rounded-t-3xl sm:rounded-3xl w-full max-w-md max-h-[92vh] overflow-y-auto shadow-2xl">
+                        <div className="sticky top-0 bg-white z-10 px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+                            <div><h3 className="font-black text-lg">拍收據建立旅遊支出</h3><p className="text-xs text-slate-400">照片只在這台裝置處理，不會上傳</p></div>
+                            <button onClick={onClose} className="w-9 h-9 rounded-full bg-slate-100 text-slate-500"><i className="fa-solid fa-xmark"></i></button>
+                        </div>
+
+                        {!mode ? (
+                            <div className="p-5 space-y-4">
+                                <button onClick={() => setMode('taiwan')} className="w-full p-5 rounded-2xl border-2 border-teal-100 bg-teal-50 text-left hover:border-teal-300">
+                                    <div className="flex items-center gap-3"><span className="w-11 h-11 rounded-full bg-teal-600 text-white flex items-center justify-center"><i className="fa-solid fa-qrcode"></i></span><div><p className="font-black text-slate-800">臺灣電子發票</p><p className="text-xs text-slate-500 mt-1">讀取左右 QR，適合臺灣消費</p></div></div>
+                                </button>
+                                <button onClick={() => setMode('overseas')} className="w-full p-5 rounded-2xl border-2 border-blue-100 bg-blue-50 text-left hover:border-blue-300">
+                                    <div className="flex items-center gap-3"><span className="w-11 h-11 rounded-full bg-blue-600 text-white flex items-center justify-center"><i className="fa-solid fa-earth-asia"></i></span><div><p className="font-black text-slate-800">海外一般收據</p><p className="text-xs text-slate-500 mt-1">英文、日文、韓文、繁中，本機 OCR 辨識</p></div></div>
+                                </button>
+                                <div className="rounded-xl bg-slate-50 border border-slate-100 p-3 text-xs text-slate-500 leading-relaxed"><i className="fa-solid fa-shield-halved text-teal-600 mr-1"></i>不需要 Gemini 或個人 API Key。第一次使用某個語言時會下載辨識字庫，但收據照片與辨識文字不會送到 Firebase。</div>
+                            </div>
+                        ) : (
+                            <div className="p-5 space-y-5">
+                                <button onClick={() => setMode(null)} className="text-sm font-bold text-slate-500"><i className="fa-solid fa-arrow-left mr-2"></i>改選收據類型</button>
+                                <div>
+                                    <label className="text-xs font-bold text-slate-500">收據主要語言</label>
+                                    <select value={language} onChange={event => setLanguage(event.target.value)} disabled={isReading} className="w-full mt-1 p-3 rounded-xl border border-slate-200 bg-slate-50 font-bold">
+                                        <option value="eng">英文／拉丁字母</option>
+                                        <option value="jpn+eng">日文＋英文</option>
+                                        <option value="kor+eng">韓文＋英文</option>
+                                        <option value="chi_tra+eng">繁體中文＋英文</option>
+                                    </select>
+                                </div>
+                                <div className="rounded-2xl bg-blue-50 border border-blue-100 p-4">
+                                    <p className="text-sm font-bold text-blue-800"><i className="fa-solid fa-camera mr-2"></i>拍完整張收據</p>
+                                    <p className="text-xs text-blue-700 mt-1">攤平、對焦清楚、避免陰影；辨識後仍可手動修正。</p>
+                                    <div className="grid grid-cols-2 gap-3 mt-3">
+                                        <button onClick={() => cameraInputRef.current?.click()} disabled={isReading} className="bg-blue-600 disabled:opacity-50 text-white p-3 rounded-xl font-bold">
+                                            <i className="fa-solid fa-camera mr-2"></i>拍照辨識
+                                        </button>
+                                        <button onClick={() => galleryInputRef.current?.click()} disabled={isReading} className="bg-white border border-blue-300 disabled:opacity-50 text-blue-700 p-3 rounded-xl font-bold">
+                                            <i className="fa-solid fa-images mr-2"></i>從相簿選取
+                                        </button>
+                                    </div>
+                                    <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" onChange={handleFile} className="hidden" />
+                                    <input ref={galleryInputRef} type="file" accept="image/*" onChange={handleFile} className="hidden" />
+                                    {isReading && <div className="mt-3 h-2 rounded-full bg-blue-100 overflow-hidden"><div className="h-full bg-blue-500 transition-all" style={{ width: `${Math.max(5, Math.round(progress.value * 100))}%` }}></div></div>}
+                                </div>
+
+                                {processedImage && <div className="rounded-xl overflow-hidden border border-slate-200 bg-slate-100"><img src={processedImage.dataUrl} alt="待辨識收據預覽" className="w-full max-h-52 object-contain" /></div>}
+
+                                {processedImage && !isReading && (
+                                    <div className="space-y-4">
+                                        <div className={`rounded-xl border p-3 text-xs leading-relaxed ${ocrResult?.amountConfident && !ocrResult?.currencyAmbiguous ? 'bg-emerald-50 border-emerald-100 text-emerald-800' : 'bg-amber-50 border-amber-100 text-amber-800'}`}>
+                                            {ocrResult?.amountConfident ? '已找到可能的收據總額，請核對下方資料。' : '總額辨識信心不足，請以紙本收據為準手動核對。'}
+                                            {ocrResult?.currencyAmbiguous && ' 幣別無法完全確認，請務必選擇正確幣別。'}
+                                            {ocrResult?.dateAmbiguous && ` 日期「${ocrResult.rawDate}」格式不明，請手動填寫。`}
+                                        </div>
+                                        <div><label className="text-xs font-bold text-slate-500">店家／支出名稱</label><input value={merchant} onChange={event => applyInputValue(event, setMerchant)} className="w-full mt-1 p-3 rounded-xl border border-slate-200 bg-slate-50" placeholder="例如：東京食堂" /></div>
+                                        <div><label className="text-xs font-bold text-slate-500">收據日期（選填）</label><input type="date" value={receiptDate} onChange={event => setReceiptDate(event.target.value)} className="w-full mt-1 p-3 rounded-xl border border-slate-200 bg-slate-50" /></div>
+                                        <div className="grid grid-cols-[1fr_132px] gap-3">
+                                            <div><label className="text-xs font-bold text-slate-500">原幣總額</label><input type="number" inputMode="decimal" value={originalAmount} onChange={event => setOriginalAmount(event.target.value)} className="w-full mt-1 p-3 rounded-xl border border-slate-200 bg-slate-50 text-lg font-black" placeholder="0" /></div>
+                                            <div><label className="text-xs font-bold text-slate-500">幣別</label><select value={currency} onChange={event => handleCurrencyChange(event.target.value)} className="w-full mt-1 p-3 rounded-xl border border-slate-200 bg-slate-50">{window.SplitEasyReceiptOcr.currencies.map(item => <option key={item.code} value={item.code}>{item.code}</option>)}</select></div>
+                                        </div>
+                                        <div><label className="text-xs font-bold text-slate-500">換算匯率</label><div className="flex items-center gap-2 mt-1"><span className="text-xs text-slate-500 shrink-0">1 {currency} =</span><input type="number" inputMode="decimal" step="any" value={exchangeRate} onChange={event => setExchangeRate(event.target.value)} className="flex-1 min-w-0 p-3 rounded-xl border border-slate-200 bg-slate-50" placeholder="請填當時匯率" /><span className="text-xs text-slate-500">TWD</span></div><p className="text-[11px] text-slate-400 mt-1">可填信用卡帳單或換匯時的實際匯率；系統不會連網抓匯率。</p></div>
+                                        <div className="rounded-2xl bg-slate-800 text-white p-4"><p className="text-xs text-slate-300">折合記帳金額</p><p className="text-3xl font-black mt-1">{formatMoney(convertedAmount)}</p></div>
+                                        <button onClick={() => recognizeImage(processedImage.dataUrl, language)} className="w-full p-3 rounded-xl bg-slate-100 text-slate-600 text-sm font-bold"><i className="fa-solid fa-rotate mr-2"></i>依目前語言重新辨識</button>
+                                        <button onClick={handleApplyOverseas} disabled={!originalAmount || !exchangeRate} className="w-full p-4 rounded-xl bg-orange-500 disabled:opacity-40 text-white font-black shadow-lg">確認資料，繼續選付款人與分攤者</button>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                    </div>
+                </div>
+            );
+        };
+
+        const DiningMode = ({ projectData, onUpdate, showMessage }) => {
+            const [step, setStep] = useState(1);
+            const [showInvoiceScanner, setShowInvoiceScanner] = useState(false);
+            const withDiningDefaults = (source) => ({
+                ...source,
+                people: (source.people || []).map(person => ({ ...person })),
+                customAmounts: { ...(source.customAmounts || {}) },
+                diningItems: (source.diningItems || []).map(item => ({ ...item, participantIds: [...(item.participantIds || [])] })),
+                billPayerId: source.billPayerId || source.people?.[0]?.id || null,
+                invoiceMeta: source.invoiceMeta || null
+            });
+            const [data, setData] = useState(() => withDiningDefaults(projectData));
+            const [compositionRevision, setCompositionRevision] = useState(0);
+            const isComposingRef = useRef(false);
+            const syncBaseRef = useRef(withDiningDefaults(projectData));
+
+            useEffect(() => {
+                if (isComposingRef.current) return;
+                const normalized = withDiningDefaults(projectData);
+                syncBaseRef.current = normalized;
+                setData(normalized);
+            }, [projectData]);
+            useEffect(() => {
+                if (isComposingRef.current) return;
+                const normalizedProjectData = withDiningDefaults(projectData);
+                if (!dataValuesEqual(data, normalizedProjectData)) onUpdate(data, syncBaseRef.current);
+            }, [data, compositionRevision]);
+
+            const beginTextComposition = () => { isComposingRef.current = true; };
+            const finishTextComposition = () => {
+                isComposingRef.current = false;
+                setCompositionRevision(revision => revision + 1);
+            };
+
+            const updateData = (key, value) => setData(prev => ({ ...prev, [key]: value }));
+            const addPerson = () => { setData(prev => ({...prev, people: [...prev.people, { id: Date.now(), name: '' }] })); };
+            const removePerson = (id) => {
+                if (data.people.length <= 1) return;
+                setData(prev => {
+                    const people = prev.people.filter(p => p.id !== id);
+                    const diningItems = (prev.diningItems || []).map(item => ({ ...item, participantIds: (item.participantIds || []).filter(personId => personId !== id) }));
+                    const customAmounts = { ...prev.customAmounts };
+                    delete customAmounts[id];
+                    return { ...prev, people, diningItems, customAmounts, billPayerId: prev.billPayerId === id ? people[0]?.id : prev.billPayerId };
+                });
+            };
+            const updatePersonName = (id, name) => setData(prev => ({ ...prev, people: prev.people.map(p => p.id === id ? { ...p, name } : p) }));
+            const getDisplayName = (person, index) => person.name || ANIMAL_NAMES[(person.id + index) % ANIMAL_NAMES.length];
+            const getCustomSubtotal = () => data.people.reduce((sum, person) => sum + Math.max(0, parseFloat(data.customAmounts[person.id]) || 0), 0);
+            const getMixedSubtotal = () => Math.max(0, (data.diningItems || []).reduce((sum, item) => sum + (parseFloat(item.amount) || 0), 0));
+            const updateCustomAmount = (personId, value) => setData(prev => {
+                const customAmounts = { ...prev.customAmounts, [personId]: value };
+                const totalBill = prev.people.reduce((sum, person) => sum + Math.max(0, parseFloat(customAmounts[person.id]) || 0), 0);
+                return { ...prev, customAmounts, totalBill };
+            });
+            const createDiningItem = (people = data.people) => ({ id: `${Date.now()}-${Math.random().toString(16).slice(2)}`, name: '', amount: '', participantIds: people.map(p => p.id) });
+            const selectMixedMode = () => setData(prev => ({ ...prev, splitMode: 'mixed', diningItems: prev.diningItems?.length ? prev.diningItems : [createDiningItem(prev.people)] }));
+            const addDiningItem = () => setData(prev => ({ ...prev, diningItems: [...(prev.diningItems || []), createDiningItem(prev.people)] }));
+            const updateDiningItem = (itemId, patch) => setData(prev => ({ ...prev, diningItems: (prev.diningItems || []).map(item => item.id === itemId ? { ...item, ...patch } : item) }));
+            const deleteDiningItem = (itemId) => setData(prev => ({ ...prev, diningItems: (prev.diningItems || []).filter(item => item.id !== itemId) }));
+            const toggleItemParticipant = (item, personId) => {
+                const participantIds = (item.participantIds || []).includes(personId)
+                    ? item.participantIds.filter(id => id !== personId)
+                    : [...(item.participantIds || []), personId];
+                updateDiningItem(item.id, { participantIds });
+            };
+            const toggleAllItemParticipants = (item) => {
+                const allPersonIds = data.people.map(person => person.id);
+                const selectedIds = (item.participantIds || []).filter(id => allPersonIds.includes(id));
+                const isEveryoneSelected = allPersonIds.length > 0 && selectedIds.length === allPersonIds.length;
+                updateDiningItem(item.id, { participantIds: isEveryoneSelected ? [] : allPersonIds });
+            };
+            const handleInvoiceApply = ({ items, invoice }) => {
+                const subtotal = items.reduce((sum, item) => sum + (parseFloat(item.amount) || 0), 0);
+                setData(prev => ({
+                    ...prev,
+                    splitMode: 'mixed',
+                    diningItems: items,
+                    totalBill: String(invoice.totalAmount || subtotal),
+                    serviceChargeType: 'fixed',
+                    serviceChargeValue: 0,
+                    invoiceMeta: invoice,
+                    date: invoice.date || prev.date
+                }));
+                showMessage({ title: '電子發票已匯入', message: `已帶入 ${items.length} 筆品項。發票總額已含稅，因此服務費已歸零；接著請為每筆品項選擇分攤成員。` });
+            };
+            const goToResult = () => {
+                if (data.splitMode === 'custom' && getCustomSubtotal() <= 0) {
+                    showMessage({ message: '請至少輸入一位成員的套餐金額。' });
+                    return;
+                }
+                if (data.splitMode === 'mixed') {
+                    const validItems = (data.diningItems || []).filter(item => Math.abs(parseFloat(item.amount) || 0) > 0);
+                    if (validItems.length === 0) return showMessage({ message: '請至少新增一筆有金額的聚餐品項。' });
+                    if (validItems.some(item => !(item.participantIds || []).length)) return showMessage({ message: '每一筆品項至少要選擇一位分攤成員。' });
+                }
+                setStep(4);
+            };
+            const getBillPreview = () => {
+                const subtotal = data.splitMode === 'custom' ? getCustomSubtotal() : data.splitMode === 'mixed' ? getMixedSubtotal() : Math.max(0, parseFloat(data.totalBill) || 0);
+                const serviceValue = Math.max(0, parseFloat(data.serviceChargeValue) || 0);
+                const serviceCharge = data.serviceChargeType === 'percent' ? subtotal * (serviceValue / 100) : serviceValue;
+                return { subtotal, serviceCharge, total: subtotal + serviceCharge };
+            };
+
+            const calculateResult = () => {
+                const bill = data.splitMode === 'custom' ? getCustomSubtotal() : data.splitMode === 'mixed' ? getMixedSubtotal() : Math.max(0, parseFloat(data.totalBill) || 0);
+                const scValue = Math.max(0, parseFloat(data.serviceChargeValue) || 0);
+                let final = 0, scAmt = 0;
+                if (data.serviceChargeType === 'percent') { scAmt = bill * (scValue / 100); final = bill + scAmt; } else { scAmt = scValue; final = bill + scAmt; }
+                const results = [];
+                if (data.splitMode === 'even') {
+                    const per = final / data.people.length;
+                    data.people.forEach((p, i) => results.push({ id: p.id, name: getDisplayName(p, i), amount: per, detail: `均攤` }));
+                } else if (data.splitMode === 'custom') {
+                    data.people.forEach((p, i) => {
+                        const raw = Math.max(0, parseFloat(data.customAmounts[p.id]) || 0);
+                        let personFinal = 0;
+                        if (data.serviceChargeType === 'percent') personFinal = raw * (1 + (scValue / 100));
+                        else { const ratio = bill > 0 ? (raw / bill) : (1 / data.people.length); personFinal = raw + (scAmt * ratio); }
+                        results.push({ id: p.id, name: getDisplayName(p, i), amount: personFinal, detail: `個人餐點 ${formatMoney(raw)}` });
+                    });
+                } else {
+                    const rawShares = Object.fromEntries(data.people.map(p => [p.id, 0]));
+                    const itemNames = Object.fromEntries(data.people.map(p => [p.id, []]));
+                    (data.diningItems || []).forEach(item => {
+                        const amount = parseFloat(item.amount) || 0;
+                        const participantIds = (item.participantIds || []).filter(id => data.people.some(p => p.id === id));
+                        if (!amount || !participantIds.length) return;
+                        const share = amount / participantIds.length;
+                        participantIds.forEach(id => {
+                            rawShares[id] = (rawShares[id] || 0) + share;
+                            itemNames[id].push(item.name?.trim() || '未命名品項');
+                        });
+                    });
+                    data.people.forEach((p, i) => {
+                        const raw = rawShares[p.id] || 0;
+                        const service = data.serviceChargeType === 'percent' ? raw * (scValue / 100) : (bill > 0 ? scAmt * (raw / bill) : 0);
+                        results.push({ id: p.id, name: getDisplayName(p, i), amount: raw + service, detail: itemNames[p.id].join('、') || '未分攤品項' });
+                    });
+                }
+                const roundedTotal = Math.round(final);
+                const roundedResults = results.map((result, index) => ({ ...result, amount: Math.floor(result.amount), fraction: result.amount - Math.floor(result.amount), index }));
+                let remaining = roundedTotal - roundedResults.reduce((sum, result) => sum + result.amount, 0);
+                [...roundedResults].sort((a, b) => b.fraction - a.fraction || a.index - b.index).forEach(result => {
+                    if (remaining > 0) { roundedResults[result.index].amount += 1; remaining -= 1; }
+                });
+                return { finalTotal: roundedTotal, serviceChargeAmount: scAmt, results: roundedResults, payerId: data.billPayerId || data.people[0]?.id };
+            };
+
+            return (
+                <div className="pb-20">
+                    <div className="flex gap-1 h-1 mb-6 px-6 pt-6">{[1, 2, 3, 4].map(s => <div key={s} className={`flex-1 rounded-full ${s <= step ? 'bg-orange-500' : 'bg-slate-200'}`} />)}</div>
+                    {step === 1 && (
+                        <div className="px-6 animate-fade-in">
+                            <h2 className="text-2xl font-bold mb-6">這次聚餐是...</h2>
+                            <div className="space-y-4">
+                                <div><label className="block text-sm font-medium text-slate-500 mb-1">聚餐名稱</label><input type="text" placeholder="例如：慶祝小明升職" className="w-full p-4 rounded-xl bg-white border border-slate-200 outline-none" value={data.title} onCompositionStart={beginTextComposition} onCompositionEnd={event => { applyInputValue(event, value => updateData('title', value)); finishTextComposition(); }} onChange={event => applyInputValue(event, value => updateData('title', value))} /></div>
+                                <div><label className="block text-sm font-medium text-slate-500 mb-1">日期</label><input type="date" className="w-full p-4 rounded-xl bg-white border border-slate-200 outline-none" value={data.date} onChange={e => updateData('date', e.target.value)} /></div>
+                            </div>
+                            <button onClick={() => setStep(2)} className="w-full mt-8 bg-orange-500 text-white p-4 rounded-xl font-bold shadow-lg">下一步</button>
+                        </div>
+                    )}
+                    {step === 2 && (
+                        <div className="px-6 animate-fade-in">
+                            <h2 className="text-2xl font-bold mb-2">誰有來吃？</h2>
+                            <div className="space-y-3 mb-6 max-h-[60vh] overflow-y-auto pr-2">
+                                {data.people.map((p, idx) => (
+                                    <div key={p.id} className="flex gap-2 items-center">
+                                        <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-lg">{idx + 1}</div>
+                                            <input type="text" placeholder={getDisplayName(p, idx)} className="flex-1 p-3 rounded-xl bg-white border border-slate-200 outline-none" value={p.name} onCompositionStart={beginTextComposition} onCompositionEnd={event => { applyInputValue(event, value => updatePersonName(p.id, value)); finishTextComposition(); }} onChange={event => applyInputValue(event, value => updatePersonName(p.id, value))} />
+                                        {data.people.length > 1 && <button onClick={() => removePerson(p.id)} className="p-3 text-slate-400 hover:text-red-500"><i className="fa-solid fa-trash"></i></button>}
+                                    </div>
+                                ))}
+                                <button onClick={addPerson} className="flex items-center gap-2 text-orange-600 font-medium p-2 hover:bg-orange-50 rounded-lg transition w-full justify-center border border-dashed border-orange-300"><i className="fa-solid fa-plus"></i> 新增成員</button>
+                            </div>
+                            <div className="flex gap-4">
+                                <button onClick={() => setStep(1)} className="flex-1 bg-slate-100 text-slate-600 p-4 rounded-xl font-bold">上一步</button>
+                                <button onClick={() => setStep(3)} className="flex-1 bg-orange-500 text-white p-4 rounded-xl font-bold shadow-lg">下一步</button>
+                            </div>
+                        </div>
+                    )}
+                    {step === 3 && (
+                        <div className="px-6 animate-fade-in">
+                            <div className="flex justify-between items-center mb-6">
+                                <h2 className="text-2xl font-bold">帳單金額</h2>
+                                <button onClick={() => setShowInvoiceScanner(true)} className="flex items-center gap-1 text-xs font-bold px-3 py-2 rounded-full shadow-sm transition bg-gradient-to-r from-teal-500 to-emerald-500 text-white hover:opacity-90 relative z-10">
+                                    <i className="fa-solid fa-qrcode"></i> 掃描電子發票
+                                </button>
+                            </div>
+                            <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 space-y-6">
+                                {data.splitMode === 'even' ? <div><label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">餐點小計</label><div className="relative"><i className="fa-solid fa-dollar-sign absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"></i><input type="number" min="0" placeholder="0" className="w-full pl-10 pr-4 py-4 rounded-xl border border-slate-200 text-2xl font-bold outline-none bg-slate-50" value={data.totalBill} onChange={e => updateData('totalBill', e.target.value)} /></div></div> : <p className="text-xs text-orange-600">{data.splitMode === 'mixed' ? '各筆共享或個人品項會在下方自動加總。' : '個別套餐會在下方自動加總，不需要重複填寫餐點小計。'}</p>}
+                                <div>
+                                    <div className="flex justify-between items-center mb-2"><label className="block text-xs font-bold text-slate-400 uppercase tracking-wider">服務費</label><div className="flex bg-slate-100 rounded-lg p-1"><button onClick={() => updateData('serviceChargeType', 'percent')} className={`px-3 py-1 text-xs rounded-md transition ${data.serviceChargeType === 'percent' ? 'bg-white shadow text-orange-600 font-bold' : 'text-slate-500'}`}>%</button><button onClick={() => updateData('serviceChargeType', 'fixed')} className={`px-3 py-1 text-xs rounded-md transition ${data.serviceChargeType === 'fixed' ? 'bg-white shadow text-orange-600 font-bold' : 'text-slate-500'}`}>$</button></div></div>
+                                    <input type="number" min="0" className="w-full px-4 py-3 rounded-xl bg-slate-50 border border-slate-200 font-medium outline-none" value={data.serviceChargeValue} onChange={e => updateData('serviceChargeValue', e.target.value)} />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">分帳方式</label>
+                                    <div className="grid grid-cols-3 gap-2">
+                                        <button onClick={() => updateData('splitMode', 'even')} className={`p-3 rounded-xl border-2 transition text-center ${data.splitMode === 'even' ? 'border-orange-500 bg-orange-50 text-orange-700 font-bold' : 'border-slate-100 text-slate-500'}`}>完全均攤</button>
+                                        <button onClick={() => updateData('splitMode', 'custom')} className={`p-3 rounded-xl border-2 transition text-center ${data.splitMode === 'custom' ? 'border-orange-500 bg-orange-50 text-orange-700 font-bold' : 'border-slate-100 text-slate-500'}`}>各付各的</button>
+                                        <button onClick={selectMixedMode} className={`p-3 rounded-xl border-2 transition text-center ${data.splitMode === 'mixed' ? 'border-orange-500 bg-orange-50 text-orange-700 font-bold' : 'border-slate-100 text-slate-500'}`}>混合分攤</button>
+                                    </div>
+                                </div>
+                                <div><label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">這次由誰先付款？</label><select className="w-full p-3 border border-slate-200 rounded-xl bg-slate-50 font-medium" value={data.billPayerId || data.people[0]?.id} onChange={e => updateData('billPayerId', parseInt(e.target.value))}>{data.people.map((person, index) => <option key={person.id} value={person.id}>{getDisplayName(person, index)}</option>)}</select><p className="text-xs text-slate-400 mt-1">結算時會顯示其他人應轉給付款人的金額。</p></div>
+                                <div className="rounded-2xl bg-gradient-to-br from-slate-800 to-slate-700 text-white p-5 shadow-lg"><p className="text-sm font-medium text-slate-300">預估應付總額</p><p className="text-4xl font-black mt-1 tracking-tight">{formatMoney(getBillPreview().total)}</p><div className="mt-4 pt-3 border-t border-white/20 flex items-center justify-between text-sm"><span className="text-slate-300">套餐合計 <span className="text-white font-bold">{formatMoney(getBillPreview().subtotal)}</span></span><span className="text-slate-300">服務費 <span className="text-white font-bold">{formatMoney(getBillPreview().serviceCharge)}</span></span></div></div>
+                                {data.splitMode === 'custom' && (
+                                    <div className="space-y-3 pt-4 border-t border-slate-100">
+                                        <div><p className="text-sm font-bold text-slate-700">逐人輸入套餐</p><p className="text-xs text-slate-500 mt-1">填寫每個人的餐點小計；百分比服務費會直接加到各自餐點，固定服務費則依餐點比例分攤。</p></div>
+                                        {data.people.map((p, idx) => (
+                                            <div key={p.id} className="flex justify-between items-center">
+                                                <span className="text-sm font-medium w-24 truncate">{getDisplayName(p, idx)}</span>
+                                                <div className="flex items-center gap-2"><span className="text-slate-400 text-sm">$</span><input type="number" min="0" placeholder="套餐小計" className="w-32 p-2 text-right rounded-lg border border-slate-200 bg-slate-50 outline-none" value={data.customAmounts[p.id] || ''} onChange={e => updateCustomAmount(p.id, e.target.value)} /></div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                                {data.splitMode === 'mixed' && (
+                                    <div className="space-y-4 pt-4 border-t border-slate-100">
+                                        <div><p className="text-sm font-bold text-slate-700">共享與個人品項</p><p className="text-xs text-slate-500 mt-1">每筆可選全員、部分成員或單一成員分攤。</p></div>
+                                        {(data.diningItems || []).map((item, itemIndex) => {
+                                            const selectedCount = (item.participantIds || []).length;
+                                            const shareLabel = selectedCount === data.people.length ? '全員共享' : selectedCount === 1 ? '個人負擔' : selectedCount > 1 ? `${selectedCount} 人共享` : '尚未選人';
+                                            return (
+                                                <div key={item.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-4 space-y-3">
+                                                    <div className="flex items-center justify-between"><span className="text-xs font-bold text-orange-600">品項 {itemIndex + 1}・{shareLabel}</span><button onClick={() => deleteDiningItem(item.id)} className="text-slate-300 hover:text-red-500 p-1" aria-label={`刪除品項 ${itemIndex + 1}`}><i className="fa-solid fa-trash"></i></button></div>
+                                                    <div className="grid grid-cols-[1fr_110px] gap-2"><input type="text" placeholder="例如：包廂費、酒水、主餐" className="w-full p-3 rounded-xl border border-slate-200 bg-white" value={item.name} onCompositionStart={beginTextComposition} onCompositionEnd={event => { applyInputValue(event, value => updateDiningItem(item.id, { name: value })); finishTextComposition(); }} onChange={event => applyInputValue(event, value => updateDiningItem(item.id, { name: value }))} /><div className="relative"><span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">$</span><input type="number" placeholder="金額" className="w-full pl-7 pr-2 py-3 rounded-xl border border-slate-200 bg-white text-right" value={item.amount} onChange={e => updateDiningItem(item.id, { amount: e.target.value })} /></div></div>
+                                                    <div className="flex items-center justify-between"><span className="text-xs font-bold text-slate-500">誰要分攤？</span><button type="button" onClick={() => toggleAllItemParticipants(item)} aria-pressed={selectedCount === data.people.length} aria-label={selectedCount === data.people.length ? '取消全員分攤' : '選取全員分攤'} className={`text-xs font-bold px-3 py-1.5 rounded-full border transition ${selectedCount === data.people.length ? 'bg-teal-100 text-teal-700 border-teal-200' : 'bg-white text-teal-600 border-teal-200'}`}><i className={`fa-solid ${selectedCount === data.people.length ? 'fa-check-double' : 'fa-users'} mr-1`}></i>全員</button></div>
+                                                    <div className="flex flex-wrap gap-2">{data.people.map((person, index) => { const selected = (item.participantIds || []).includes(person.id); return <button key={person.id} onClick={() => toggleItemParticipant(item, person.id)} className={`px-3 py-2 rounded-full text-sm border transition ${selected ? 'bg-teal-100 text-teal-700 border-teal-200 font-bold' : 'bg-white text-slate-400 border-slate-200'}`}>{getDisplayName(person, index)} {selected && <i className="fa-solid fa-check ml-1 text-xs"></i>}</button>; })}</div>
+                                                </div>
+                                            );
+                                        })}
+                                        <button onClick={addDiningItem} className="w-full p-3 rounded-xl border-2 border-dashed border-orange-300 text-orange-600 font-bold hover:bg-orange-50"><i className="fa-solid fa-plus mr-2"></i>新增一筆品項</button>
+                                    </div>
+                                )}
+                            </div>
+                            <div className="flex gap-4 mt-8">
+                                <button onClick={() => setStep(2)} className="flex-1 bg-slate-100 text-slate-600 p-4 rounded-xl font-bold">上一步</button>
+                                <button onClick={goToResult} className="flex-1 bg-orange-500 text-white p-4 rounded-xl font-bold shadow-lg">開始計算</button>
+                            </div>
+                        </div>
+                    )}
+                    {step === 4 && <DiningResult data={data} calculation={calculateResult()} onBack={() => setStep(3)} showMessage={showMessage} />}
+                    {showInvoiceScanner && <TaiwanInvoiceScannerModal people={data.people} onClose={() => setShowInvoiceScanner(false)} onApply={handleInvoiceApply} showMessage={showMessage} />}
+                </div>
+            );
+        };
+
+        const DiningResult = ({ data, calculation, onBack, showMessage }) => {
+            const resultRef = useRef(null);
+            const { finalTotal, serviceChargeAmount, results, payerId } = calculation;
+            const payerIndex = data.people.findIndex(person => person.id === payerId);
+            const payerName = payerIndex >= 0 ? getPersonNameHelper(payerId, data.people) : '付款人';
+            const transfers = results.filter(result => result.id !== payerId && result.amount > 0).map(result => ({ from: result.name, to: payerName, amount: result.amount }));
+            const resultText = [`${data.title || '本次聚餐'}｜總額 ${formatMoney(finalTotal)}`, `付款人：${payerName}`, ...results.map(result => `．${result.name}負擔 ${formatMoney(result.amount)}${result.detail ? `（${result.detail}）` : ''}`), '', ...transfers.map(item => `．${item.from} 轉給 ${item.to} ${formatMoney(item.amount)}`)].join('\n');
+
+            const handleDownloadImage = async () => {
+                if (resultRef.current && window.html2canvas) { 
+                    const canvas = await window.html2canvas(resultRef.current, { scale: 2 }); 
+                    const link = document.createElement('a'); 
+                    link.download = `${data.title}_分帳卡.png`; 
+                    link.href = canvas.toDataURL(); 
+                    link.click(); 
+                }
+            };
+
+            return (
+                <div className="px-6 animate-fade-in pb-10">
+                    <h2 className="text-2xl font-bold mb-4">計算結果</h2>
+                    <div ref={resultRef} className="bg-white p-6 rounded-2xl shadow-xl border border-slate-100 mb-6 relative overflow-hidden">
+                        <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-orange-400 to-red-500"></div>
+                        <div className="flex justify-between items-end mb-6 pb-6 border-b border-dashed border-slate-200">
+                            <div><h3 className="text-xl font-bold text-slate-800">{data.title || '快樂聚餐'}</h3><p className="text-slate-500 text-sm">{data.date}</p></div>
+                            <div className="text-right"><p className="text-xs text-slate-400 uppercase">Total</p><p className="text-2xl font-black text-orange-600">{formatMoney(Math.round(finalTotal))}</p></div>
+                        </div>
+                        <div className="mb-4 rounded-xl bg-orange-50 border border-orange-100 p-3 flex items-center justify-between"><span className="text-sm text-orange-700">本次付款人</span><span className="font-black text-orange-700">{payerName}</span></div>
+                        <div className="space-y-3">{results.map((r, i) => (<div key={i} className="flex justify-between items-start gap-3"><span className="font-medium text-slate-700">{r.name}</span><div className="text-right"><span className="block font-bold text-slate-800">{formatMoney(r.amount)}</span>{r.detail && <span className="block text-[10px] text-slate-400 max-w-[190px]">{r.detail}</span>}</div></div>))}</div>
+                        {transfers.length > 0 && <div className="mt-6 pt-5 border-t border-dashed border-slate-200"><h4 className="text-xs font-bold text-slate-400 uppercase mb-3">建議轉帳</h4><div className="space-y-2">{transfers.map((item, index) => <div key={index} className="flex justify-between items-center rounded-lg bg-teal-50 px-3 py-2 text-sm"><span><b>{item.from}</b> 轉給 {item.to}</span><b className="text-teal-700">{formatMoney(item.amount)}</b></div>)}</div></div>}
+                    </div>
+                    <div className="grid grid-cols-2 gap-4 mb-4"><button onClick={() => {copyToClipboard(resultText); showMessage({message: '明細已複製！'});}} className="bg-blue-50 text-blue-600 p-4 rounded-xl font-bold flex items-center justify-center gap-2"><i className="fa-solid fa-copy"></i> 複製文字</button><button onClick={handleDownloadImage} className="bg-orange-50 text-orange-600 p-4 rounded-xl font-bold flex items-center justify-center gap-2"><i className="fa-solid fa-download"></i> 下載圖片</button></div>
+                    <button onClick={onBack} className="w-full bg-slate-100 text-slate-600 p-4 rounded-xl font-bold">修改設定</button>
+                </div>
+            );
+        };
+
+        const TravelMode = ({ projectData, onUpdate, showMessage }) => {
+            const normalizeTravelData = (source) => {
+                const expenses = (source?.expenses || []).map(expense => ({
+                    ...expense,
+                    day: Math.max(1, parseInt(expense.day, 10) || 1)
+                }));
+                const highestExpenseDay = expenses.reduce((highest, expense) => Math.max(highest, expense.day), 1);
+                return {
+                    ...(source || {}),
+                    people: (source?.people || []).map(person => ({ ...person })),
+                    expenses,
+                    days: Math.max(1, parseInt(source?.days, 10) || 1, highestExpenseDay)
+                };
+            };
+            const [tab, setTab] = useState('setup');
+            const [showAddModal, setShowAddModal] = useState(false);
+            const [showReceiptScanner, setShowReceiptScanner] = useState(false);
+            const [receiptDraft, setReceiptDraft] = useState(null);
+            const [editingExpense, setEditingExpense] = useState(null);
+            const [trip, setTrip] = useState(() => normalizeTravelData(projectData));
+            const [showWalletSetup, setShowWalletSetup] = useState(false);
+            const [activeDay, setActiveDay] = useState(1);
+            const [compositionRevision, setCompositionRevision] = useState(0);
+            const isComposingRef = useRef(false);
+            const syncBaseRef = useRef(normalizeTravelData(projectData));
+
+            useEffect(() => {
+                if (isComposingRef.current) return;
+                const normalized = normalizeTravelData(projectData);
+                syncBaseRef.current = normalized;
+                setTrip(normalized);
+                setActiveDay(currentDay => Math.min(Math.max(1, currentDay), normalized.days));
+            }, [projectData]);
+            useEffect(() => {
+                if (isComposingRef.current) return;
+                const normalizedProjectData = normalizeTravelData(projectData);
+                if (!dataValuesEqual(trip, normalizedProjectData)) onUpdate(trip, syncBaseRef.current);
+            }, [trip, compositionRevision]);
+
+            const beginTextComposition = () => { isComposingRef.current = true; };
+            const finishTextComposition = () => {
+                isComposingRef.current = false;
+                setCompositionRevision(revision => revision + 1);
+            };
+
+            const tripDayCount = Math.max(1, parseInt(trip.days, 10) || 1);
+            const dayNumbers = Array.from({ length: tripDayCount }, (_, index) => index + 1);
+            const activeDayExpenses = trip.expenses.filter(expense => (parseInt(expense.day, 10) || 1) === activeDay);
+            const activeDayTotal = activeDayExpenses.reduce((sum, expense) => sum + (parseFloat(expense.amount) || 0), 0);
+            const tripTotal = trip.expenses.reduce((sum, expense) => sum + (parseFloat(expense.amount) || 0), 0);
+
+            const addPerson = () => {
+                const id = Date.now();
+                setTrip(prev => ({ ...prev, people: [...prev.people, { id, name: '', payerId: id }] }));
+            };
+            const removePerson = (id) => { if (trip.people.length > 1) setTrip(prev => ({ ...prev, people: prev.people.filter(p => p.id !== id) })); };
+            const addTripDay = () => {
+                const nextDay = tripDayCount + 1;
+                setTrip(prev => ({ ...prev, days: nextDay }));
+                setActiveDay(nextDay);
+            };
+            const addExpense = (newEx) => {
+                const expenseDay = Math.max(1, parseInt(newEx.day, 10) || activeDay);
+                setTrip(prev => ({ ...prev, expenses: [...prev.expenses, { ...newEx, day: expenseDay, id: Date.now() }] }));
+                setActiveDay(expenseDay);
+            };
+            const updateExpense = (updated) => {
+                const expenseDay = Math.max(1, parseInt(updated.day, 10) || 1);
+                setTrip(prev => ({ ...prev, expenses: prev.expenses.map(expense => expense.id === updated.id ? { ...updated, day: expenseDay } : expense) }));
+                setActiveDay(expenseDay);
+            };
+            const deleteExpense = (id) => setTrip(prev => ({ ...prev, expenses: prev.expenses.filter(e => e.id !== id) }));
+            const handleEditClick = (expense) => {
+                setReceiptDraft(null);
+                setEditingExpense(expense);
+                setActiveDay(Math.max(1, parseInt(expense.day, 10) || 1));
+                setShowAddModal(true);
+            };
+            const handleReceiptDraft = draft => {
+                const draftDay = Math.min(tripDayCount, Math.max(1, parseInt(draft.day, 10) || activeDay));
+                setReceiptDraft({ ...draft, day: draftDay });
+                setEditingExpense(null);
+                setActiveDay(draftDay);
+                setShowReceiptScanner(false);
+                setShowAddModal(true);
+            };
+
+            if (showWalletSetup) return <WalletSetupScreen people={trip.people} onUpdate={(newPeople) => setTrip(prev => ({ ...prev, people: newPeople }))} onNext={() => setShowWalletSetup(false)} onBack={() => setShowWalletSetup(false)} showMessage={showMessage} />;
+
+            return (
+                <div className="h-full flex flex-col relative">
+                    <div className="flex bg-white border-b border-slate-200">
+                        {['setup', 'expenses', 'settle'].map(t => <button key={t} onClick={() => setTab(t)} className={`flex-1 py-3 text-sm font-bold ${tab === t ? 'text-teal-600 border-b-2 border-teal-600' : 'text-slate-400'}`}>{t === 'setup' ? '設定' : t === 'expenses' ? '記帳' : '結算'}</button>)}
+                    </div>
+                    <div className="flex-1 overflow-y-auto bg-slate-50 no-scrollbar">
+                        {tab === 'setup' && (
+                            <div className="p-6 pb-24 space-y-4 bg-white m-4 rounded-2xl shadow-sm">
+                                <div><label className="block text-sm text-slate-500 mb-1">旅遊名稱</label><input className="w-full p-3 border rounded-xl bg-slate-50" value={trip.name} onCompositionStart={beginTextComposition} onCompositionEnd={event => { applyInputValue(event, value => setTrip(prev => ({ ...prev, name: value }))); finishTextComposition(); }} onChange={event => applyInputValue(event, value => setTrip(prev => ({ ...prev, name: value })))} /></div>
+                                <div><label className="block text-sm text-slate-500 mb-2">成員</label><div className="space-y-2">{trip.people.map((p, idx) => (<div key={p.id} className="flex gap-2"><input className="flex-1 p-2 border rounded-lg" placeholder={getPersonNameHelper(p.id, trip.people)} value={p.name} onCompositionStart={beginTextComposition} onCompositionEnd={event => { applyInputValue(event, value => setTrip(prev => ({ ...prev, people: prev.people.map(person => person.id === p.id ? { ...person, name: value } : person) }))); finishTextComposition(); }} onChange={event => applyInputValue(event, value => setTrip(prev => ({ ...prev, people: prev.people.map(person => person.id === p.id ? { ...person, name: value } : person) })))} />{trip.people.length > 1 && <button onClick={() => removePerson(p.id)}><i className="fa-solid fa-trash text-slate-300"></i></button>}</div>))}<button onClick={addPerson} className="text-sm text-teal-600 font-bold">+ 新增成員</button></div></div>
+                                <div className="pt-4 border-t border-slate-100"><button onClick={() => setShowWalletSetup(true)} className="w-full py-3 bg-teal-50 text-teal-700 rounded-xl font-bold flex items-center justify-center gap-2 border border-teal-200 hover:bg-teal-100"><i className="fa-solid fa-wallet"></i> 設定共同錢包 (家庭/情侶)</button></div>
+                            </div>
+                        )}
+                        {tab === 'expenses' && (
+                            <div className="p-4 pb-24">
+                                <div className="mb-4">
+                                    <div className="flex items-end justify-between gap-3 mb-3">
+                                        <div><p className="text-sm font-bold text-slate-700">旅遊日程</p><p className="text-xs text-slate-400 mt-1">可隨時切回前面的天數新增或編輯</p></div>
+                                        <button type="button" onClick={addTripDay} className="shrink-0 px-3 py-2 rounded-xl bg-blue-50 text-blue-600 border border-blue-100 text-xs font-bold"><i className="fa-solid fa-plus mr-1"></i>新增一天</button>
+                                    </div>
+                                    <div className="flex gap-2 overflow-x-auto pb-2 no-scrollbar">
+                                        {dayNumbers.map(day => {
+                                            const expenseCount = trip.expenses.filter(expense => (parseInt(expense.day, 10) || 1) === day).length;
+                                            const selected = activeDay === day;
+                                            return <button type="button" key={day} onClick={() => setActiveDay(day)} className={`shrink-0 min-w-[88px] px-4 py-3 rounded-xl border text-sm font-bold transition ${selected ? 'bg-blue-600 text-white border-blue-600 shadow-md' : 'bg-white text-slate-500 border-slate-200'}`}>第 {day} 天 <span className={`ml-1 text-[10px] ${selected ? 'text-blue-100' : 'text-slate-300'}`}>{expenseCount} 筆</span></button>;
+                                        })}
+                                    </div>
+                                </div>
+                                <div className="bg-teal-600 text-white p-6 rounded-2xl shadow-lg mb-6">
+                                    <div className="flex items-start justify-between gap-3"><p className="text-teal-100 text-sm">第 {activeDay} 天支出</p><span className="text-xs bg-teal-700/50 px-3 py-1 rounded-full whitespace-nowrap">旅程累計 {formatMoney(tripTotal)}</span></div>
+                                    <h2 className="text-4xl font-bold mt-1">{formatMoney(activeDayTotal)}</h2>
+                                    <div className="mt-4 flex gap-2 text-sm text-teal-100"><span className="bg-teal-700/50 px-3 py-1 rounded-full">{activeDayExpenses.length} 筆</span><span className="bg-teal-700/50 px-3 py-1 rounded-full">{trip.people.length} 人</span></div>
+                                </div>
+                                <div className="space-y-3">
+                                    {activeDayExpenses.length === 0 && <div className="bg-white border border-dashed border-slate-200 rounded-2xl py-10 px-6 text-center"><i className="fa-solid fa-receipt text-2xl text-slate-300"></i><p className="text-sm font-bold text-slate-500 mt-3">第 {activeDay} 天還沒有支出</p><p className="text-xs text-slate-400 mt-1">點右下角的加號新增第一筆</p></div>}
+                                    {activeDayExpenses.map((exp) => (
+                                        <div key={exp.id} className="bg-white p-4 rounded-xl shadow-sm border border-slate-100">
+                                            <div className="flex justify-between items-start mb-2"><div><p className="font-bold text-slate-800">{exp.desc}</p><div className="flex items-center gap-1 mt-1"><i className="fa-solid fa-arrow-right-arrow-left text-xs text-slate-400"></i><p className="text-xs text-slate-500">{Object.keys(exp.payers).map(pid => getPersonNameHelper(pid, trip.people)).join(', ')} 付款</p></div>{exp.receiptMeta && <div className="flex items-center gap-1 mt-1"><i className="fa-solid fa-camera text-[10px] text-blue-400"></i><p className="text-[11px] text-blue-500">{exp.receiptMeta.currency !== 'TWD' ? `${exp.receiptMeta.currency} ${exp.receiptMeta.originalAmount} × ${exp.receiptMeta.exchangeRate}` : exp.receiptMeta.source === 'taiwan-einvoice' ? `電子發票 ${exp.receiptMeta.invoiceNumber || ''}` : '收據匯入'}</p></div>}</div><div className="flex items-center gap-2"><span className="font-bold text-teal-600">{formatMoney(exp.amount)}</span><button onClick={() => handleEditClick(exp)} className="p-2 bg-slate-50 rounded text-slate-400" aria-label={`編輯${exp.desc}`}><i className="fa-solid fa-pencil"></i></button><button onClick={() => deleteExpense(exp.id)} className="p-2 bg-slate-50 rounded text-slate-400 hover:text-red-500" aria-label={`刪除${exp.desc}`}><i className="fa-solid fa-trash"></i></button></div></div>
+                                            <div className="pt-2 border-t border-slate-50 flex items-start gap-2"><i className="fa-solid fa-users text-xs text-slate-400 mt-1"></i><p className="text-xs text-slate-400">分攤: {exp.splitBetween.length === trip.people.length ? '全員' : exp.splitBetween.map(id => getPersonNameHelper(id, trip.people)).join(', ')}</p></div>
+                                        </div>
+                                    ))}
+                                </div>
+                                <button onClick={() => { setEditingExpense(null); setReceiptDraft(null); setShowAddModal(true); }} aria-label={`新增第 ${activeDay} 天支出`} className="fixed bottom-24 right-6 w-14 h-14 bg-blue-600 text-white rounded-full shadow-xl flex items-center justify-center z-10"><i className="fa-solid fa-plus text-xl"></i></button>
+                            </div>
+                        )}
+                        {tab === 'settle' && <SettlementView trip={trip} showMessage={showMessage} />}
+                    </div>
+                    {showAddModal && <AddExpenseModal people={trip.people} dayCount={tripDayCount} defaultDay={activeDay} initialData={editingExpense} prefillData={receiptDraft} onScanReceipt={() => { setShowAddModal(false); setShowReceiptScanner(true); }} onClose={() => { setShowAddModal(false); setEditingExpense(null); setReceiptDraft(null); }} onAdd={addExpense} onUpdate={updateExpense} getPersonName={(id) => getPersonNameHelper(id, trip.people)} showMessage={showMessage} />}
+                    {showReceiptScanner && <TravelReceiptCaptureModal people={trip.people} defaultDay={activeDay} onClose={() => { setShowReceiptScanner(false); setShowAddModal(true); }} onCreateDraft={handleReceiptDraft} showMessage={showMessage} />}
+                </div>
+            );
+        };
+
+        const SettlementView = ({ trip, showMessage }) => {
+            const result = calculateSettlementHelper(trip);
+            if (result.error) return <div className="p-6 pb-24 flex flex-col items-center justify-center h-full text-center"><div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mb-4"><i className="fa-solid fa-triangle-exclamation text-3xl text-red-500"></i></div><h3 className="font-bold text-xl text-slate-800">資料格式異常</h3><p className="text-slate-500 text-sm mt-2 max-w-xs">偵測到異常，無法結算。</p></div>;
+            const { overview, transactions } = result;
+            const settlementRef = useRef(null);
+            const settlementText = [`${trip.name || '本次旅遊'}｜結算`, ...transactions.map(transaction => `．${getPersonNameHelper(transaction.from, trip.people)} 付給 ${getPersonNameHelper(transaction.to, trip.people)} ${formatMoney(Math.round(transaction.amount))}`)].join('\n');
+
+            const handleDownload = async () => { if (settlementRef.current && window.html2canvas) { const canvas = await window.html2canvas(settlementRef.current, { scale: 2 }); const link = document.createElement('a'); link.download = `結算清單.png`; link.href = canvas.toDataURL(); link.click(); } };
+
+            return (
+                <div className="p-6 pb-24">
+                    <h2 className="text-2xl font-bold mb-4">結算中心</h2>
+                    <div ref={settlementRef} className="bg-white p-6 rounded-2xl shadow-lg border border-slate-100 space-y-6">
+                        <div className="text-center border-b border-slate-100 pb-4"><h3 className="font-bold text-lg">{trip.name || '本次旅遊'}</h3><p className="text-slate-500 text-xs">建議轉帳路徑</p></div>
+                        <div className="space-y-3">{transactions.map((t, i) => (<div key={i} className="flex items-center justify-between bg-slate-50 p-3 rounded-lg border border-slate-100"><div className="flex items-center gap-2"><span className="font-bold text-slate-700">{getPersonNameHelper(t.from, trip.people)}</span><span className="text-slate-400 text-xs">給</span><span className="font-bold text-slate-700">{getPersonNameHelper(t.to, trip.people)}</span></div><span className="font-bold text-teal-600">{formatMoney(Math.round(t.amount))}</span></div>))}{transactions.length === 0 && <div className="text-center text-green-600 font-bold py-4">帳目已平！</div>}</div>
+                        <div className="pt-4 border-t border-slate-100"><h4 className="text-sm font-bold text-slate-400 uppercase mb-3">個人收支 (含錢包合併)</h4><div className="space-y-2">{overview.map(p => { if (p.payerId && p.payerId !== p.id && p.balance === 0) return null; return (<div key={p.id} className="flex justify-between text-sm"><span>{p.name}</span><span className={p.balance >= 0 ? 'text-blue-600 font-bold' : 'text-red-500 font-bold'}>{p.balance > 0 ? `應收 ${formatMoney(Math.round(p.balance))}` : `應付 ${formatMoney(Math.round(Math.abs(p.balance)))}`}</span></div>); })}</div></div>
+                    </div>
+                    <button onClick={() => { copyToClipboard(settlementText); showMessage({ message: '結算文字已複製！' }); }} disabled={transactions.length === 0} className="w-full mt-6 bg-blue-50 disabled:opacity-40 text-blue-600 p-4 rounded-xl font-bold flex items-center justify-center gap-2"><i className="fa-solid fa-copy"></i> 複製結算文字</button>
+                    <button onClick={handleDownload} className="w-full mt-4 bg-slate-800 text-white p-4 rounded-xl font-bold flex items-center justify-center gap-2"><i className="fa-solid fa-download"></i> 下載結算圖</button>
+                </div>
+            );
+        };
+
+        const AddExpenseModal = ({ people, dayCount, defaultDay, initialData, prefillData, onScanReceipt, onClose, onAdd, onUpdate, getPersonName, showMessage }) => {
+            const seedData = initialData || prefillData;
+            const [desc, setDesc] = useState(seedData?.desc || ''); 
+            const [amount, setAmount] = useState(seedData?.amount || ''); 
+            const [payerMode, setPayerMode] = useState('single'); 
+            const [mainPayer, setMainPayer] = useState(people[0]?.id); 
+            const [multiPayers, setMultiPayers] = useState({}); 
+            const [splitExcludes, setSplitExcludes] = useState([]);
+            const safeDayCount = Math.max(1, parseInt(dayCount, 10) || 1);
+            const [expenseDay, setExpenseDay] = useState(Math.min(safeDayCount, Math.max(1, parseInt(seedData?.day, 10) || parseInt(defaultDay, 10) || 1)));
+            
+            useEffect(() => { 
+                const seed = initialData || prefillData;
+                if (seed) { 
+                    setDesc(seed.desc || ''); 
+                    setAmount(seed.amount || ''); 
+                    if (seed.payers && Object.keys(seed.payers).length > 1) { 
+                        setPayerMode('multi'); 
+                        setMultiPayers(seed.payers); 
+                    } else if (seed.payers && Object.keys(seed.payers).length === 1) { 
+                        setPayerMode('single'); 
+                        setMainPayer(parseInt(Object.keys(seed.payers)[0])); 
+                    } else {
+                        setPayerMode('single');
+                        setMainPayer(people[0]?.id);
+                        setMultiPayers({});
+                    } 
+                    setSplitExcludes(seed.splitBetween ? people.filter(p => !seed.splitBetween.includes(p.id)).map(p => p.id) : []);
+                    setExpenseDay(Math.min(safeDayCount, Math.max(1, parseInt(seed.day, 10) || parseInt(defaultDay, 10) || 1)));
+                } else {
+                    setDesc('');
+                    setAmount('');
+                    setPayerMode('single');
+                    setMainPayer(people[0]?.id);
+                    setMultiPayers({});
+                    setSplitExcludes([]);
+                    setExpenseDay(Math.min(safeDayCount, Math.max(1, parseInt(defaultDay, 10) || 1)));
+                }
+            }, [initialData, prefillData, defaultDay]);
+            
+            const handleSubmit = () => { 
+                if (!desc.trim() || !amount) return showMessage({message: '請填寫完整'});
+                const total = parseFloat(amount);
+                if (!Number.isFinite(total) || total <= 0) return showMessage({message: '金額必須大於 0'});
+                let payers = {}; 
+                if (payerMode === 'single') {
+                    payers[mainPayer] = total; 
+                } else { 
+                    const validPayers = {}; 
+                    let sum = 0; 
+                    Object.entries(multiPayers).forEach(([pid, val]) => { 
+                        const v = parseFloat(val); 
+                        if (v > 0) { validPayers[pid] = v; sum += v; } 
+                    }); 
+                    if (Math.abs(sum - total) > 1) return showMessage({message: `付款金額總和不符 (您輸入了 ${sum}，總額 ${total})`}); 
+                    payers = validPayers; 
+                } 
+                const split = people.filter(p => !splitExcludes.includes(p.id)).map(p => p.id);
+                if (split.length === 0) return showMessage({message: '請至少選擇一位分攤成員'});
+                const receiptMeta = initialData?.receiptMeta || prefillData?.receiptMeta || null;
+                const data = { desc: desc.trim(), amount: total, payers, splitBetween: split, day: expenseDay, ...(receiptMeta ? { receiptMeta } : {}) };
+                initialData ? onUpdate({...data, id: initialData.id}) : onAdd(data); 
+                onClose(); 
+            };
+            
+            const activeSplitCount = people.length - splitExcludes.length; 
+            const isAllSplit = activeSplitCount === people.length;
+            const handleToggleAll = () => { if (splitExcludes.length === 0) setSplitExcludes(people.map(p => p.id)); else setSplitExcludes([]); };
+
+            return (
+                <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 animate-fade-in">
+                    <div className="bg-white w-full max-w-md rounded-t-3xl sm:rounded-3xl p-6 h-[90vh] sm:h-auto overflow-y-auto animate-slide-up">
+                        <div className="flex justify-between items-center mb-6"><h3 className="text-xl font-bold">{initialData ? '編輯' : '新增'}消費</h3><button onClick={onClose} className="text-slate-400 font-bold text-lg">✕</button></div>
+                        {!initialData && (
+                            <div className="mb-6">
+                                <button onClick={onScanReceipt} className="flex items-center justify-center gap-2 w-full p-3 rounded-xl border-2 border-dashed border-teal-300 bg-teal-50 text-teal-700 font-bold cursor-pointer hover:bg-teal-100">
+                                    <i className="fa-solid fa-camera"></i> 拍收據自動填寫
+                                </button>
+                            </div>
+                        )}
+                        {seedData?.receiptMeta && <div className="mb-4 rounded-xl bg-blue-50 border border-blue-100 p-3 text-xs text-blue-700"><i className="fa-solid fa-receipt mr-1"></i>{seedData.receiptMeta.source === 'taiwan-einvoice' ? '已由臺灣電子發票帶入，請繼續選擇付款人與分攤者。' : `已由海外收據帶入：${seedData.receiptMeta.currency} ${seedData.receiptMeta.originalAmount}，目前以 ${formatMoney(amount || 0)} 記帳。`}</div>}
+                        <div className="space-y-4">
+                            <div><label className="text-xs text-slate-500 font-bold">記在哪一天？</label><select className="w-full p-3 border rounded-xl mt-1 bg-slate-50 font-bold text-slate-700" value={expenseDay} onChange={e => setExpenseDay(parseInt(e.target.value, 10))}>{Array.from({ length: safeDayCount }, (_, index) => index + 1).map(day => <option key={day} value={day}>第 {day} 天</option>)}</select></div>
+                            <div><label className="text-xs text-slate-500 font-bold">品項</label><input className="w-full p-3 border rounded-xl mt-1 bg-slate-50" value={desc} onChange={event => applyInputValue(event, setDesc)} /></div>
+                            <div><label className="text-xs text-slate-500 font-bold">記帳金額（新臺幣）</label><input type="number" className="w-full p-3 border rounded-xl mt-1 text-xl font-bold bg-slate-50" value={amount} onChange={e => setAmount(e.target.value)} /></div>
+                            <div className="bg-slate-50 p-4 rounded-xl"><div className="flex justify-between mb-2"><label className="text-xs font-bold text-slate-500">付款人</label><button onClick={() => setPayerMode(m => m === 'single' ? 'multi' : 'single')} className="text-xs text-teal-600 underline">{payerMode === 'single' ? '切換多人' : '切換單人'}</button></div>{payerMode === 'single' ? <select className="w-full p-3 border rounded-xl bg-white" value={mainPayer} onChange={e => setMainPayer(parseInt(e.target.value))}>{people.map(p => <option key={p.id} value={p.id}>{getPersonName(p.id)}</option>)}</select> : <div className="space-y-2">{people.map(p => <div key={p.id} className="flex justify-between items-center"><span className="text-sm">{getPersonName(p.id)}</span><input type="number" className="w-24 p-2 border rounded text-right" value={multiPayers[p.id]||''} onChange={event => applyInputValue(event, value => setMultiPayers(prev => ({ ...prev, [p.id]: value })))} /></div>)}</div>}</div>
+                            <div>
+                                <div className="flex justify-between items-center mb-2"><label className="text-xs text-slate-500 font-bold block">分攤給？ <span className="text-teal-600 font-normal">{isAllSplit ? '(預設：全員均攤)' : `(指定 ${activeSplitCount} 人)`}</span></label><button onClick={handleToggleAll} className="text-xs bg-slate-100 hover:bg-slate-200 text-slate-600 px-2 py-1 rounded transition">{splitExcludes.length === 0 ? '全不選' : '全選'}</button></div>
+                                <div className="flex flex-wrap gap-2">{people.map(p => (<button key={p.id} onClick={() => setSplitExcludes(prev => prev.includes(p.id) ? prev.filter(id=>id!==p.id) : [...prev, p.id])} className={`px-3 py-2 rounded-full text-sm border transition-all ${!splitExcludes.includes(p.id) ? 'bg-teal-100 text-teal-700 font-bold border-teal-200' : 'bg-white text-slate-300 border-slate-100'}`}>{getPersonName(p.id)} {!splitExcludes.includes(p.id) && <i className="fa-solid fa-check ml-1 text-xs"></i>}</button>))}</div>
+                            </div>
+                        </div>
+                        <button onClick={handleSubmit} className="w-full mt-8 bg-slate-800 text-white p-4 rounded-xl font-bold shadow-lg">確認</button>
+                    </div>
+                </div>
+            );
+        };
+
+        const App = () => {
+            const [showSplash, setShowSplash] = useState(true);
+            const [authReady, setAuthReady] = useState(false);
+            const [authError, setAuthError] = useState('');
+            const [authPersistenceWarning, setAuthPersistenceWarning] = useState('');
+            const [isLoggingIn, setIsLoggingIn] = useState(false);
+            const [view, setView] = useState('projectList');
+            const [projects, setProjects] = useState([]);
+            const [projectsLoading, setProjectsLoading] = useState(false);
+            const [activeProjectData, setActiveProjectData] = useState(null);
+            const [currentProjectId, setCurrentProjectId] = useState(null);
+            const [user, setUser] = useState(null);
+            const [dialog, setDialog] = useState(null);
+            const [shareInvite, setShareInvite] = useState(null);
+            const [showCollaborationManager, setShowCollaborationManager] = useState(false);
+            const [projectIndexWarning, setProjectIndexWarning] = useState('');
+            const [projectListRetryRevision, setProjectListRetryRevision] = useState(0);
+            const [activeSyncRevision, setActiveSyncRevision] = useState(0);
+            const debounceTimer = useRef(null);
+            const activeProjectRef = useRef(null);
+            const pendingProjectUpdateRef = useRef(null);
+            const syncInFlightRef = useRef(false);
+            const processedInviteRef = useRef(false);
+            const ensuredIndexKeysRef = useRef(new Set());
+
+            useEffect(() => { activeProjectRef.current = activeProjectData; }, [activeProjectData]);
+
+            const params = new URLSearchParams(window.location.search);
+            const hasPendingInvite = Boolean(params.get('invite') || params.get('join'));
+
+            useEffect(() => {
+                let mounted = true;
+                let unsubscribe = () => {};
+                const initializeAuth = async () => {
+                    try {
+                        await setPersistence(auth, browserLocalPersistence);
+                        if (mounted) setAuthPersistenceWarning('');
+                    } catch (error) {
+                        console.error('Auth persistence error:', error);
+                        if (mounted) {
+                            const warning = '這個瀏覽器無法長期保存登入狀態。Safari 私密瀏覽或 App 內建瀏覽器可能會在關閉後登出；請改用一般模式的外部 Chrome／Safari。';
+                            setAuthPersistenceWarning(warning);
+                            setAuthError(warning);
+                        }
+                    }
+
+                    if (!mounted) return;
+                    unsubscribe = onAuthStateChanged(auth, nextUser => {
+                        if (!mounted) return;
+                        const isGoogleAccount = nextUser?.providerData?.some(provider => provider.providerId === 'google.com');
+                        if (nextUser && (nextUser.isAnonymous || !isGoogleAccount)) {
+                            signOut(auth).catch(error => console.warn('清除舊匿名登入失敗：', error));
+                            setUser(null);
+                            setAuthReady(true);
+                            setShowSplash(false);
+                            return;
+                        }
+                        setUser(nextUser);
+                        setAuthReady(true);
+                        setShowSplash(false);
+                        if (!nextUser) {
+                            setProjects([]);
+                            setActiveProjectData(null);
+                            setCurrentProjectId(null);
+                            setShowCollaborationManager(false);
+                            setProjectIndexWarning('');
+                            processedInviteRef.current = false;
+                            ensuredIndexKeysRef.current.clear();
+                            setView('projectList');
+                        }
+                    });
+                };
+                initializeAuth();
+                const safetyTimer = setTimeout(() => {
+                    if (mounted) {
+                        setAuthReady(true);
+                        setShowSplash(false);
+                    }
+                }, 8000);
+                return () => {
+                    mounted = false;
+                    clearTimeout(safetyTimer);
+                    unsubscribe();
+                };
+            }, []);
+
+            const handleGoogleLogin = async () => {
+                setIsLoggingIn(true);
+                setAuthError('');
+                const popupTimer = window.setTimeout(() => {
+                    setIsLoggingIn(false);
+                    setAuthError('沒有看到 Google 登入視窗嗎？這個 App 內建瀏覽器可能會攔截彈出視窗，請將目前網址改用外部 Chrome／Safari 開啟。');
+                }, 7000);
+                try {
+                    const provider = new GoogleAuthProvider();
+                    provider.setCustomParameters({ prompt: 'select_account' });
+                    await signInWithPopup(auth, provider);
+                } catch (error) {
+                    console.error('Google login error:', error);
+                    if (error.code === 'auth/unauthorized-domain') {
+                        setAuthError('目前網址尚未加入 Firebase 授權網域，請由管理者完成設定後再試。');
+                    } else if (error.code === 'auth/operation-not-allowed') {
+                        setAuthError('Firebase 尚未啟用 Google 登入，請由管理者先開啟。');
+                    } else if (['auth/popup-blocked', 'auth/popup-closed-by-user', 'auth/cancelled-popup-request'].includes(error.code)) {
+                        setAuthError('Google 登入視窗被瀏覽器攔截或關閉，請允許彈出式視窗，或改用外部 Chrome／Safari 開啟。');
+                    } else {
+                        setAuthError('Google 登入失敗，請確認網路後再試；若正在 App 內建瀏覽器，請改用外部 Chrome／Safari。');
+                    }
+                } finally {
+                    window.clearTimeout(popupTimer);
+                    setIsLoggingIn(false);
+                }
+            };
+
+            useEffect(() => {
+                if (!user) return;
+                let disposed = false;
+                let retryTimer = null;
+                let loadGeneration = 0;
+                setProjectsLoading(true);
+                const indexCollection = userProjectCollectionFor(user.uid);
+
+                const loadIndexSnapshot = async (indexSnapshot, retryRound = 0) => {
+                    const generation = ++loadGeneration;
+                    if (indexSnapshot.metadata.hasPendingWrites && retryRound === 0) {
+                        setProjectIndexWarning('專案目錄正在等待雲端確認，既有索引不會被刪除。');
+                        setProjectsLoading(false);
+                        return;
+                    }
+                    try {
+                        let unresolvedCount = 0;
+                        const loaded = await Promise.all(indexSnapshot.docs.map(async indexDoc => {
+                            const indexData = indexDoc.data();
+                            try {
+                                const cloudProject = await getProjectWithRetry(indexDoc.id, retryRound === 0 ? 3 : 2);
+                                if (!cloudProject.exists()) {
+                                    unresolvedCount += 1;
+                                    return {
+                                        id: indexDoc.id,
+                                        name: indexData.projectName || '等待確認的專案',
+                                        type: indexData.projectType || 'travel',
+                                        updatedAt: indexData.lastConfirmedAt || indexData.joinedAt || '',
+                                        currentUserRole: indexData.role || 'editor',
+                                        accessPending: true
+                                    };
+                                }
+                                return {
+                                    id: cloudProject.id,
+                                    ...cloudProject.data(),
+                                    currentUserRole: indexData.role || (cloudProject.data().ownerId === user.uid ? 'owner' : 'editor')
+                                };
+                            } catch (projectError) {
+                                if (RETRYABLE_PROJECT_READ_CODES.has(projectError?.code)) {
+                                    unresolvedCount += 1;
+                                    return {
+                                        id: indexDoc.id,
+                                        name: indexData.projectName || '等待確認的專案',
+                                        type: indexData.projectType || 'travel',
+                                        updatedAt: indexData.lastConfirmedAt || indexData.joinedAt || '',
+                                        currentUserRole: indexData.role || 'editor',
+                                        accessPending: true
+                                    };
+                                }
+                                throw projectError;
+                            }
+                        }));
+                        if (disposed || generation !== loadGeneration) return;
+                        const cleanProjects = loaded.sort((a, b) => new Date(b.updatedAt || 0) - new Date(a.updatedAt || 0));
+                        setProjects(cleanProjects);
+                        if (unresolvedCount > 0) {
+                            setProjectIndexWarning(`有 ${unresolvedCount} 個專案暫時無法確認權限；系統已保留首頁索引並自動重試，不會因單次錯誤刪除。`);
+                            if (retryRound < 2) {
+                                retryTimer = window.setTimeout(() => loadIndexSnapshot(indexSnapshot, retryRound + 1), 900 * (retryRound + 1));
+                            }
+                        } else {
+                            setProjectIndexWarning('');
+                        }
+                    } catch (error) {
+                        console.error('Project index error:', error);
+                        if (!disposed) setProjectIndexWarning('目前無法完整讀取雲端專案；首頁索引已保留，請確認網路後重新整理。');
+                    } finally {
+                        if (!disposed && generation === loadGeneration) setProjectsLoading(false);
+                    }
+                };
+
+                const unsubscribe = onSnapshot(indexCollection, { includeMetadataChanges: true }, indexSnapshot => {
+                    if (retryTimer) window.clearTimeout(retryTimer);
+                    loadIndexSnapshot(indexSnapshot);
+                }, error => {
+                    console.error('Project list listener error:', error);
+                    setProjectsLoading(false);
+                    setProjectIndexWarning('目前無法連線到個人專案目錄；既有索引不會被自動刪除。');
+                });
+                return () => {
+                    disposed = true;
+                    if (retryTimer) window.clearTimeout(retryTimer);
+                    unsubscribe();
+                };
+            }, [user, projectListRetryRevision]);
+
+            useEffect(() => {
+                if (!user || processedInviteRef.current) return;
+                const joinParams = new URLSearchParams(window.location.search);
+                const inviteCode = joinParams.get('invite');
+                const legacyJoinId = joinParams.get('join');
+                if (!inviteCode && !legacyJoinId) return;
+                processedInviteRef.current = true;
+
+                const processJoin = async () => {
+                    if (legacyJoinId) {
+                        window.history.replaceState({}, document.title, window.location.pathname);
+                        setDialog({ type: 'alert', title: '舊邀請連結已停用', message: '資料庫已升級，請向專案擁有者索取 v2 新邀請連結。' });
+                        return;
+                    }
+
+                    const separatorIndex = inviteCode.indexOf('.');
+                    const projectId = separatorIndex > 0 ? inviteCode.slice(0, separatorIndex) : '';
+                    const inviteId = separatorIndex > 0 ? inviteCode.slice(separatorIndex + 1) : '';
+                    if (!projectId || !inviteId) {
+                        window.history.replaceState({}, document.title, window.location.pathname);
+                        setDialog({ type: 'alert', title: '邀請連結無效', message: '邀請連結格式錯誤。' });
+                        return;
+                    }
+
+                    try {
+                        const inviteSnap = await getDoc(inviteRefFor(projectId, inviteId));
+                        if (!inviteSnap.exists() || inviteSnap.data().status !== 'active') throw new Error('邀請連結已失效或已被撤銷。');
+
+                        let existingMembership = null;
+                        try {
+                            const memberSnap = await getDoc(memberRefFor(projectId, user.uid));
+                            if (memberSnap.exists()) existingMembership = memberSnap.data();
+                        } catch (membershipError) {
+                            if (membershipError.code !== 'permission-denied') throw membershipError;
+                        }
+
+                        const joinedAt = new Date().toISOString();
+                        const batch = writeBatch(db);
+                        if (!existingMembership) {
+                            batch.set(memberRefFor(projectId, user.uid), {
+                                role: 'editor',
+                                inviteId,
+                                joinedAt,
+                                displayName: user.displayName || '',
+                                email: user.email || ''
+                            });
+                        }
+                        batch.set(userProjectRefFor(user.uid, projectId), {
+                            role: existingMembership?.role || 'editor',
+                            joinedAt: existingMembership?.joinedAt || joinedAt,
+                            lastConfirmedAt: joinedAt
+                        }, { merge: true });
+                        await batch.commit();
+
+                        const projectSnap = await getProjectWithRetry(projectId);
+                        if (!projectSnap.exists()) throw new Error('找不到這個專案，可能已被刪除。');
+                        const cloudData = { id: projectSnap.id, ...projectSnap.data(), currentUserRole: existingMembership?.role || 'editor' };
+                        try {
+                            await ensureUserProjectIndex({
+                                uid: user.uid,
+                                projectId,
+                                role: cloudData.currentUserRole,
+                                joinedAt: existingMembership?.joinedAt || joinedAt,
+                                project: cloudData
+                            });
+                            ensuredIndexKeysRef.current.add(`${user.uid}:${projectId}`);
+                        } catch (indexError) {
+                            console.warn('Post-join index confirmation failed:', indexError);
+                            setProjectIndexWarning('已成功加入專案，但首頁索引仍在等待確認；重新開啟邀請連結可再次自動修復。');
+                        }
+                        setCurrentProjectId(projectId);
+                        setActiveProjectData(cloudData);
+                        setView('activeProject');
+                        setDialog({ type: 'alert', title: '已加入共編', message: `「${cloudData.name}」已加入你的專案清單。之後換裝置登入同一個 Google 帳號也找得到。` });
+                    } catch (error) {
+                        console.error('Join project error:', error);
+                        setDialog({ type: 'alert', title: '無法加入專案', message: error.message || '請確認邀請連結是否有效。' });
+                    } finally {
+                        window.history.replaceState({}, document.title, window.location.pathname);
+                    }
+                };
+                processJoin();
+            }, [user]);
+
+            useEffect(() => {
+                if (!user || !currentProjectId || view !== 'activeProject') return;
+                let disposed = false;
+                const unsubscribe = onSnapshot(projectRefFor(currentProjectId), snapshot => {
+                    if (!snapshot.exists()) {
+                        setDialog({ type: 'alert', title: '暫時找不到專案', message: '目前無法確認專案是否已刪除；首頁索引會保留，不會因單次讀取結果自動清除。' });
+                        setProjectIndexWarning('有專案目前無法確認狀態；索引已保留，請稍後重新整理。');
+                        setActiveProjectData(null);
+                        setCurrentProjectId(null);
+                        setView('projectList');
+                        return;
+                    }
+                    const snapshotProject = snapshot.data();
+                    const oldRole = activeProjectRef.current?.currentUserRole || (snapshotProject.ownerId === user.uid ? 'owner' : 'editor');
+                    const pendingUpdate = pendingProjectUpdateRef.current?.projectId === currentProjectId ? pendingProjectUpdateRef.current : null;
+                    const displayData = pendingUpdate
+                        ? applyDataOperations(snapshotProject.data || {}, pendingUpdate.operations)
+                        : snapshotProject.data;
+                    const cloudData = {
+                        id: snapshot.id,
+                        ...snapshotProject,
+                        data: displayData,
+                        name: getProjectDisplayName(snapshotProject.type, displayData),
+                        currentUserRole: oldRole
+                    };
+                    activeProjectRef.current = cloudData;
+                    setActiveProjectData(cloudData);
+                    setProjects(prev => prev.map(project => project.id === cloudData.id ? { ...cloudData, currentUserRole: project.currentUserRole || oldRole } : project));
+                    const indexKey = `${user.uid}:${currentProjectId}`;
+                    if (!ensuredIndexKeysRef.current.has(indexKey) && !snapshot.metadata.hasPendingWrites) {
+                        ensuredIndexKeysRef.current.add(indexKey);
+                        ensureUserProjectIndex({ uid: user.uid, projectId: currentProjectId, role: oldRole, project: cloudData })
+                            .catch(error => {
+                                ensuredIndexKeysRef.current.delete(indexKey);
+                                console.warn('Ensure project index failed:', error);
+                                if (!disposed) setProjectIndexWarning('專案內容已讀取，但首頁索引尚未修復；請確認網路後再試。');
+                            });
+                    }
+                }, error => {
+                    console.error('Project sync error:', error);
+                    if (error.code === 'permission-denied') {
+                        getProjectWithRetry(currentProjectId, 3)
+                            .then(projectSnapshot => {
+                                if (disposed) return;
+                                if (projectSnapshot.exists()) {
+                                    setActiveSyncRevision(revision => revision + 1);
+                                    return;
+                                }
+                                throw new Error('project-not-found');
+                            })
+                            .catch(retryError => {
+                                if (disposed) return;
+                                console.warn('Project permission retry did not recover:', retryError);
+                                setActiveProjectData(null);
                                 setCurrentProjectId(null);
                                 setView('projectList');
                                 setProjectIndexWarning('此專案的權限仍無法確認；索引已保留，沒有自動刪除。若你確定已被移除，可由專案擁有者再次分享。');
