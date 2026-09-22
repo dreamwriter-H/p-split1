@@ -2,6 +2,19 @@
 
 本專案採用「保留每個版本副本」的方式管理。基準版與每次修改後的版本均存放於 `versions/`；後續不直接覆寫既有版本資料夾。
 
+## v2.2.0 — 2026-09-22
+
+- 狀態：將已驗收的 v2.2 rc4 runtime 提升為固定正式入口，正式網址維持 `https://dreamwriter-h.github.io/p-split1/`，網址不包含版本號。
+- 中文輸入：所有 IME handler 在事件處理期間先擷取文字值，修正 Safari／iPhone 注音選字後可能白頁的問題。
+- 畫面復原：加入 Error Boundary、重新載入／回首頁操作，以及 `APP_VERSION`／`BUILD_ID` 顯示。
+- 登入可靠度：完成 Auth persistence 後才啟動監聽，並顯示 Google email、UID 尾碼及持久化失敗提示。
+- 索引可靠度：暫時性 `permission-denied` 不再直接刪除首頁索引，新增重試、pending-write 保護與有效成員索引自癒。
+- 發票辨識：拍照與相簿選取分離，整張照片以原始像素左右半區優先掃描；三張使用者實際樣本共六個 QR 均通過回歸。
+- 正式資料：改用全新 `spliteasy-v2-2-prod` 專案與個人索引空間，不匯入 v2.1 或 preview 測試帳目。
+- 安全規則：只開放 v2.2 正式空間；v1、v2.1 與 v2.2 preview 明確停寫，避免舊分頁把已清除資料寫回。
+- 資料重設：依使用者明確授權永久清除舊專案、帳目、成員、邀請與索引；Google/Firebase Auth 帳號與 Git 歷史完整保留。實際刪除數及驗證結果記錄於 `DATA_RESET_GATE.md`。
+- 保留：`/v2-preview/` 與既有 Git commit 只作歷史驗證，不再是正式資料入口。
+
 ## v1.0.0-baseline — 2026-09-14
 
 - 狀態：使用者提供的原始基準版，尚未進行功能或程式修改。

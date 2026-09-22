@@ -7,62 +7,61 @@ service cloud.firestore {
         && request.auth.token.firebase.sign_in_provider == 'google.com';
     }
 
-    function projectPath(projectId) {
-      return /databases/$(database)/documents/apps/spliteasy-v2/projects/$(projectId);
+    function productionProjectPath(projectId) {
+      return /databases/$(database)/documents/apps/spliteasy-v2-2-prod/projects/$(projectId);
     }
 
-    function memberPath(projectId, uid) {
-      return /databases/$(database)/documents/apps/spliteasy-v2/projects/$(projectId)/members/$(uid);
+    function productionMemberPath(projectId, uid) {
+      return /databases/$(database)/documents/apps/spliteasy-v2-2-prod/projects/$(projectId)/members/$(uid);
     }
 
-    function invitePath(projectId, inviteId) {
-      return /databases/$(database)/documents/apps/spliteasy-v2/projects/$(projectId)/invites/$(inviteId);
+    function productionInvitePath(projectId, inviteId) {
+      return /databases/$(database)/documents/apps/spliteasy-v2-2-prod/projects/$(projectId)/invites/$(inviteId);
     }
 
-    function isMember(projectId) {
+    function isProductionMember(projectId) {
       return isGoogleUser()
-        && exists(memberPath(projectId, request.auth.uid));
+        && exists(productionMemberPath(projectId, request.auth.uid));
     }
 
-    function isOwner(projectId) {
+    function isProductionOwner(projectId) {
       return isGoogleUser()
-        && get(projectPath(projectId)).data.ownerId == request.auth.uid;
+        && get(productionProjectPath(projectId)).data.ownerId == request.auth.uid;
     }
 
-    function isOwnerAfterWrite(projectId) {
+    function isProductionOwnerAfterWrite(projectId) {
       return isGoogleUser()
-        && getAfter(projectPath(projectId)).data.ownerId == request.auth.uid;
+        && getAfter(productionProjectPath(projectId)).data.ownerId == request.auth.uid;
     }
 
-    function hasActiveInvite(projectId, inviteId) {
+    function hasActiveProductionInvite(projectId, inviteId) {
       return isGoogleUser()
-        && exists(invitePath(projectId, inviteId))
-        && get(invitePath(projectId, inviteId)).data.status == 'active';
+        && exists(productionInvitePath(projectId, inviteId))
+        && get(productionInvitePath(projectId, inviteId)).data.status == 'active';
     }
 
-    // v2 正式資料：一個專案只存一份，成員以 Google uid 判斷。
-    match /apps/spliteasy-v2/projects/{projectId} {
+    // v2.2 正式資料：專案、成員與邀請只存在全新的正式資料空間。
+    match /apps/spliteasy-v2-2-prod/projects/{projectId} {
       allow create: if isGoogleUser()
         && request.resource.data.ownerId == request.auth.uid
-        && request.resource.data.schemaVersion == '2.0.0'
+        && request.resource.data.schemaVersion == '2.2.0'
         && request.resource.data.type in ['dining', 'travel']
         && request.resource.data.keys().hasAll([
           'id', 'name', 'type', 'ownerId', 'createdAt', 'updatedAt', 'data'
         ]);
 
-      // 專案內容只允許成員讀取；首頁殘留索引由使用者自己的 App 偵測權限失效後清除。
-      allow get: if isMember(projectId);
+      allow get: if isProductionMember(projectId);
       allow list: if false;
 
-      allow update: if isMember(projectId)
+      allow update: if isProductionMember(projectId)
         && request.resource.data.ownerId == resource.data.ownerId
         && request.resource.data.type == resource.data.type
         && request.resource.data.schemaVersion == resource.data.schemaVersion;
 
-      allow delete: if isOwner(projectId);
+      allow delete: if isProductionOwner(projectId);
 
       match /members/{memberId} {
-        allow get, list: if isMember(projectId);
+        allow get, list: if isProductionMember(projectId);
 
         allow create: if isGoogleUser()
           && memberId == request.auth.uid
@@ -70,35 +69,34 @@ service cloud.firestore {
           && (
             (
               request.resource.data.role == 'owner'
-              && isOwnerAfterWrite(projectId)
+              && isProductionOwnerAfterWrite(projectId)
             )
             ||
             (
               request.resource.data.role == 'editor'
               && request.resource.data.keys().hasAll(['inviteId'])
-              && hasActiveInvite(projectId, request.resource.data.inviteId)
+              && hasActiveProductionInvite(projectId, request.resource.data.inviteId)
             )
           );
 
-        allow update: if isOwner(projectId);
-        allow delete: if isOwner(projectId)
+        allow update: if isProductionOwner(projectId);
+        allow delete: if isProductionOwner(projectId)
           || (isGoogleUser() && memberId == request.auth.uid);
       }
 
       match /invites/{inviteId} {
-        // 邀請碼本身是高強度隨機值；禁止列出，只允許持有完整網址的人讀取指定邀請。
         allow get: if isGoogleUser();
-        allow list: if isOwner(projectId);
-        allow create: if isOwner(projectId)
+        allow list: if isProductionOwner(projectId);
+        allow create: if isProductionOwner(projectId)
           && request.resource.data.createdBy == request.auth.uid;
-        allow update: if isOwner(projectId)
+        allow update: if isProductionOwner(projectId)
           && request.resource.data.createdBy == resource.data.createdBy;
-        allow delete: if isOwner(projectId);
+        allow delete: if isProductionOwner(projectId);
       }
     }
 
-    // 每位使用者只看得到自己的專案目錄。
-    match /users/{userId}/projects/{projectId} {
+    // 每位使用者只能讀寫自己的 v2.2 正式專案索引；專案擁有者可同步清理已移除成員的索引。
+    match /users/{userId}/spaces/spliteasy-v2-2-prod/projects/{projectId} {
       allow get, list: if isGoogleUser() && userId == request.auth.uid;
 
       allow create: if isGoogleUser()
@@ -107,23 +105,41 @@ service cloud.firestore {
         && (
           (
             request.resource.data.role == 'owner'
-            && isOwnerAfterWrite(projectId)
+            && isProductionOwnerAfterWrite(projectId)
           )
           ||
           (
             request.resource.data.role == 'editor'
-            && existsAfter(memberPath(projectId, request.auth.uid))
+            && existsAfter(productionMemberPath(projectId, request.auth.uid))
           )
         );
 
-      allow update, delete: if isGoogleUser()
-        && userId == request.auth.uid;
+      allow update: if isGoogleUser() && userId == request.auth.uid;
+
+      allow delete: if isGoogleUser()
+        && (userId == request.auth.uid || isProductionOwner(projectId));
     }
 
-    // v1 舊路徑全面停寫，避免舊分頁在清除後又把匿名資料寫回來。
+    // 正式切換後凍結舊 v2.1 與 v2.2 預覽資料，避免舊分頁在永久清除後寫回。
+    match /apps/spliteasy-v2/projects/{document=**} {
+      allow read, write: if false;
+    }
+
+    match /users/{userId}/projects/{document=**} {
+      allow read, write: if false;
+    }
+
+    match /apps/spliteasy-v2-2-preview/projects/{document=**} {
+      allow read, write: if false;
+    }
+
+    match /users/{userId}/spaces/spliteasy-v2-2-preview/projects/{document=**} {
+      allow read, write: if false;
+    }
+
+    // v1 舊路徑全面停用。
     match /artifacts/{document=**} {
       allow read, write: if false;
     }
   }
 }
-
