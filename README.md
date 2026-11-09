@@ -1,10 +1,32 @@
-# Split Easy v2.2.0
+# Split Easy v2.3.1 — 聚餐錢包點選分組
 
 Split Easy 是以 Google 帳號登入的雲端共編分帳 App，支援聚餐、旅遊、臺灣電子發票雙 QR 與海外收據本機 OCR。
+
+本次正式發布版本為 v2.3.1（build：`v2.3.1-prod-r1`）。沿用既有 v2.2 正式資料空間與 schema，不需要清空帳本或重新建立專案。
+
+## v2.3.1 介面更新
+
+- 聚餐共同錢包改為旅遊模式相同的頭像點選方式：先點要移動的成員或錢包，再點結算代表。
+- 分組卡片顯示代表及同組成員；點同組成員的「×」可退出，並支援取消選取與整組合併。
+- 收合後也以頭像與成員卡片顯示分組，點卡片即可重新展開編輯。
+- 保留橘色聚餐介面、四步流程，以及 v2.3.0 的個人餐費與錢包結算規則。
+- 折扣造成錢包合計為負數時，會由付款錢包代表反向退款，不再漏列應退金額。
+
+## v2.3.0 新增功能
+
+- 聚餐的「成員」步驟加入可展開的共同錢包設定，保留原本四步流程與橘色聚餐介面。
+- 每位成員可自己結算，或併入另一位代表的錢包；可退出、整組合併及調整分組。
+- 均攤、各付各的及混合品項都先計算個人餐費、服務費與整數尾差，再合併錢包金額。
+- 結算卡保留各人的餐費明細，並按錢包代表列出轉帳；付款人若屬於他人的錢包，清楚顯示對外收款代表。
+- 複製文字與下載圖片包含相同的錢包分組、個人明細及轉帳結果。
+- 舊聚餐帳本缺少分組欄位時維持各自結算；移除代表後，留下的成員各自結算。
+- 工作區另有使用範例資料的本機試用工具，位於 `work/`，不連接 Firebase，也不隨正式網站發布。
+- 計算與共編回歸測試：`node tests/dining-wallet.test.cjs`。
 
 ## 使用入口
 
 - 正式入口：<https://dreamwriter-h.github.io/p-split1/>
+- 正式站對應 `dreamwriter-H/p-split1` 的 `main`；`p-split` 是另一個舊站。版本宣告可見 <https://github.com/dreamwriter-H/p-split1/blob/main/index.html#L48-L49>。
 - 歷史驗收入口：<https://dreamwriter-h.github.io/p-split1/v2-preview/>
 - 正式入口固定不含版本號；版本由頁面底部顯示的 `APP_VERSION` 與 `BUILD_ID` 辨識。
 
@@ -45,6 +67,7 @@ users/{googleUid}/spaces/spliteasy-v2-2-prod/projects/{projectId}
 
 - 均攤、各自套餐、共享／指定／個人品項混合分攤。
 - 百分比或固定服務費、墊付人、整數尾差與結算轉帳。
+- 共同錢包分組、代表結算與個人餐費明細。
 - 臺灣電子發票整張拍攝、相簿選取、雙 QR 本機辨識與匯入前校對。
 
 ### 旅遊模式
@@ -63,13 +86,13 @@ users/{googleUid}/spaces/spliteasy-v2-2-prod/projects/{projectId}
 
 ## 發布與驗證
 
-1. 以完整 rc4 runtime 為正式基準，不從終端輸出重建大型 `index.html`。
-2. 檢查完整檔案大小、必要元件、Babel JSX 編譯、v2.2 靜態標記及發票掃描回歸。
-3. 先部署 Firestore Rules，開啟 `spliteasy-v2-2-prod` 並凍結舊資料空間。
-4. 再將相同完整資產發布至固定正式入口。
-5. 公開頁面需以真實瀏覽器確認 React root 已渲染且沒有 page error。
+1. 以完整 v2.2 正式 runtime 為基準，保留歷史快照。
+2. 執行 `node validate-v2.3.1-production.cjs`、`node tests/dining-wallet.test.cjs`，並檢查完整 Babel JSX 編譯及本機瀏覽器操作。
+3. 本次不變更 Firestore Rules、帳本資料空間或資料 schema，不執行舊版資料清除程序。
+4. 將同一組已驗證檔案以單一提交發布至 `main`，保留未修改的發票、OCR 模組及歷史預覽頁。
+5. 核對 GitHub Pages 工作流程、正式入口的版本與檔案雜湊，並以真實瀏覽器確認 React root 已渲染且沒有 page error。
 
-資料重設邊界與驗證證據記錄於 `DATA_RESET_GATE.md`；完整歷程見 `VERSION_HISTORY.md`。
+`DATA_RESET_GATE.md` 是 v2.2 的歷史資料重設文件，不適用於本次發布；本版驗證見 `VERIFICATION_v2.3.1.md`，完整歷程見 `VERSION_HISTORY.md`。
 
 ## 隱私與費用
 
