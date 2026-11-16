@@ -14,7 +14,7 @@
     <script src="./invoice-qr-parser.js?v=2.2.0"></script>
     <script src="./receipt-ocr.js?v=2.2.0"></script>
     <script src="./receipt-item-parser.js?v=2.4.0-prod-r1"></script>
-    <script src="./dining-trip-import.js?v=2.4.0-prod-r1"></script>
+    <script src="./dining-trip-import.js?v=2.4.1-prod-r1"></script>
 
     <style>
         .no-scrollbar::-webkit-scrollbar { display: none; }
@@ -46,8 +46,8 @@
         const auth = getAuth(app);
         const db = getFirestore(app);
         const FIREBASE_APP_ID = 'spliteasy-2026';
-        const APP_VERSION = '2.4.0';
-        const BUILD_ID = 'v2.4.0-prod-r1';
+        const APP_VERSION = '2.4.1';
+        const BUILD_ID = 'v2.4.1-prod-r1';
         // v2.2 正式版使用全新的資料空間與首頁索引，不載入任何舊版帳本。
         const DATA_SPACE = 'spliteasy-v2-2-prod';
         const USER_INDEX_SPACE = 'spliteasy-v2-2-prod';

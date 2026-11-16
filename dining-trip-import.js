@@ -17,7 +17,9 @@
   customAmounts:d.customAmounts||{},diningItems:d.diningItems||[],
   billPayerId:d.billPayerId||d.people?.[0]?.id||null
  });
- const fingerprint=d=>JSON.stringify(financialData(d));
+ // Firestore map keys may return in a different order; array order and values remain significant.
+ const stableStringify=value=>JSON.stringify(value,(_,nested)=>nested&&typeof nested==='object'&&!Array.isArray(nested)?Object.fromEntries(Object.keys(nested).sort().map(key=>[key,nested[key]])):nested);
+ const fingerprint=d=>stableStringify(financialData(d));
  const targetFingerprint=d=>JSON.stringify({people:(d.people||[]).map(p=>({id:p.id,name:p.name||'',payerId:p.payerId||p.id})),days:Math.max(1,parseInt(d.days,10)||1)});
  const hasImport=(trip,sourceId)=>(trip.expenses||[]).some(e=>e.diningImport?.sourceProjectId===sourceId);
  const build=(source,trip,options,calculation,rows)=>{
