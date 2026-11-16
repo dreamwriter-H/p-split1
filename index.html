@@ -9,11 +9,12 @@
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
     <script src="./invoice-image-scanner.js?v=2.2.0"></script>
     <script src="./invoice-qr-parser.js?v=2.2.0"></script>
     <script src="./receipt-ocr.js?v=2.2.0"></script>
+    <script src="./receipt-item-parser.js?v=2.4.0-prod-r1"></script>
+    <script src="./dining-trip-import.js?v=2.4.0-prod-r1"></script>
 
     <style>
         .no-scrollbar::-webkit-scrollbar { display: none; }
@@ -45,8 +46,8 @@
         const auth = getAuth(app);
         const db = getFirestore(app);
         const FIREBASE_APP_ID = 'spliteasy-2026';
-        const APP_VERSION = '2.3.1';
-        const BUILD_ID = 'v2.3.1-prod-r1';
+        const APP_VERSION = '2.4.0';
+        const BUILD_ID = 'v2.4.0-prod-r1';
         // v2.2 正式版使用全新的資料空間與首頁索引，不載入任何舊版帳本。
         const DATA_SPACE = 'spliteasy-v2-2-prod';
         const USER_INDEX_SPACE = 'spliteasy-v2-2-prod';
@@ -286,6 +287,14 @@
                         balances[pId] = (balances[pId] || 0) + cleanAmt;
                     });
 
+                    if (exp.splitAmounts) {
+                        const entries = Object.entries(exp.splitAmounts);
+                        if (Math.abs(entries.reduce((sum, [, value]) => sum + Number(value), 0) - amount) > 0.005 ||
+                            entries.some(([id, value]) => !people.some(p => String(p.id) === id) || !Number.isFinite(Number(value))) ||
+                            Object.keys(exp.payers).some(id => !people.some(p => String(p.id) === id))) throw new Error('匯入聚餐的成員或金額異常');
+                        entries.forEach(([id, value]) => { balances[id] = (balances[id] || 0) - Number(value); });
+                        return;
+                    }
                     const splitCount = exp.splitBetween.length;
                     if (splitCount > 0) {
                         const perPerson = amount / splitCount;
@@ -310,8 +319,8 @@
                 let debtors = [], creditors = [];
                 Object.entries(balances).forEach(([id, amt]) => {
                     const val = Math.round(amt * 100) / 100;
-                    if (val < -1) debtors.push({ id: parseInt(id), amount: val });
-                    if (val > 1) creditors.push({ id: parseInt(id), amount: val });
+                    if (val <= -0.01) debtors.push({ id: parseInt(id), amount: val });
+                    if (val >= 0.01) creditors.push({ id: parseInt(id), amount: val });
                 });
 
                 debtors.sort((a, b) => a.amount - b.amount);
@@ -337,8 +346,8 @@
                     debtor.amount += amount;
                     creditor.amount -= amount;
 
-                    if (Math.abs(debtor.amount) < 1) i++;
-                    if (creditor.amount < 1) j++;
+                    if (Math.abs(debtor.amount) < 0.005) i++;
+                    if (creditor.amount < 0.005) j++;
                 }
 
                 return {
@@ -453,6 +462,131 @@
         };
 
         // --- UI 元件 ---
+
+        // 結算明細只讀取現有資料，不參與原本的分帳計算。
+        const getDiningExpenseRows = (data, calculation) => {
+            let rows;
+            if (data.splitMode === 'mixed') {
+                rows = (data.diningItems || []).filter(item => parseFloat(item.amount)).map((item, index) => ({
+                    id: item.id || index, name: item.name?.trim() || '未命名品項', amount: parseFloat(item.amount) || 0
+                }));
+            } else if (data.splitMode === 'custom') {
+                rows = (data.people || []).map(person => ({
+                    id: person.id, name: `${getPersonNameHelper(person.id, data.people)}的餐費`,
+                    amount: Math.max(0, parseFloat(data.customAmounts?.[person.id]) || 0)
+                })).filter(row => row.amount > 0);
+            } else {
+                rows = [{ id: 'bill', name: '聚餐費用', amount: Math.max(0, parseFloat(data.totalBill) || 0) }].filter(row => row.amount > 0);
+            }
+            if (calculation.serviceChargeAmount) rows.push({ id: 'service', name: '服務費', amount: calculation.serviceChargeAmount });
+            const difference = Math.round((calculation.finalTotal - rows.reduce((sum, row) => sum + row.amount, 0)) * 100) / 100;
+            if (difference) rows.push({ id: 'rounding', name: '尾差調整', amount: difference });
+            return rows;
+        };
+
+        const getTravelExpenseGroups = (trip) => {
+            const groups = new Map();
+            (trip.expenses || []).forEach((expense, index) => {
+                const day = Math.max(1, parseInt(expense.day, 10) || 1);
+                if (!groups.has(day)) groups.set(day, []);
+                groups.get(day).push({ id: expense.id || index, name: expense.desc?.trim() || '未命名費用', amount: parseFloat(expense.amount) || 0, diningImport: expense.diningImport || null });
+            });
+            return [...groups.entries()].sort((left, right) => left[0] - right[0]).map(([day, rows]) => ({
+                day, rows, total: rows.reduce((sum, row) => sum + row.amount, 0)
+            }));
+        };
+
+        const ExpenseRows = ({ rows }) => <div className="space-y-3">{rows.map((row, index) => (
+            <div key={`${row.id}-${index}`} className="flex items-start justify-between gap-3 text-sm">
+                <span className="min-w-0 flex-1 break-words text-slate-700">{row.name}</span>
+                <span className="shrink-0 font-bold tabular-nums text-slate-800">{formatMoney(row.amount)}</span>
+            </div>
+        ))}</div>;
+
+
+        const DiningImportDetails = ({ snapshot }) => <div className="space-y-4 text-sm">
+            <p className="text-xs text-slate-500 leading-relaxed">保留匯入當時的內容；原聚餐後續修改不會自動更新這筆支出。共同錢包依旅遊設定結算。</p>
+            <div><h5 className="font-bold mb-2">原聚餐品項</h5><ExpenseRows rows={snapshot.rows || []} /></div>
+            <div><h5 className="font-bold mb-2">各人負擔（含服務費與尾差）</h5><ExpenseRows rows={(snapshot.shares || []).map((s,i)=>({id:i,name:s.name || s.sourceName || '未命名成員',amount:s.amount}))} /></div>
+        </div>;
+        const DiningTripImportModal = ({ sourceId, data, calculation, travelProjects, onImport, onClose }) => {
+            const [targetId,setTargetId] = useState(travelProjects[0]?.id || '');
+            const target = travelProjects.find(p=>p.id===targetId);
+            const [day,setDay] = useState(1),[mapping,setMapping] = useState(()=>window.SplitEasyDiningImport.autoMap(data,target?.data || {}));
+            const [accepted,setAccepted] = useState(false),[busy,setBusy] = useState(false),[error,setError] = useState('');
+            const busyRef = useRef(false);
+            const sourceFingerprint = window.SplitEasyDiningImport.fingerprint(data);
+            const targetFingerprint = window.SplitEasyDiningImport.targetFingerprint(target?.data || {});
+            useEffect(()=>{
+                setMapping(window.SplitEasyDiningImport.autoMap(data,target?.data || {}));setDay(1);setAccepted(false);setError('');
+            },[targetId,sourceFingerprint,targetFingerprint]);
+            const rows = getDiningExpenseRows(data,calculation);
+            let validation = '';
+            try {
+                window.SplitEasyDiningImport.build(data,target?.data || {},{sourceProjectId:sourceId,targetProjectId:targetId,mapping,day,expenseId:'preview',importedAt:''},calculation,rows);
+            } catch(e) { validation=e.message; }
+            const submit = async () => {
+                if(busyRef.current || validation || !accepted) return;
+                busyRef.current=true;setBusy(true);setError('');
+                try {
+                    await onImport({targetProjectId:targetId,mapping,day,sourceFingerprint,targetFingerprint});
+                    onClose();
+                } catch(e) { setError(e.message || '目前無法匯入，請稍後重試。'); }
+                finally {busyRef.current=false;setBusy(false);}
+            };
+            return <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-3">
+                <section role="dialog" aria-modal="true" aria-label="匯入旅遊專案" className="bg-white rounded-2xl p-5 w-full max-w-md max-h-[92vh] overflow-y-auto space-y-4">
+                    <h3 className="text-xl font-bold">匯入旅遊專案</h3>
+                    <p className="text-sm text-slate-600">{data.title || '本次聚餐'} · {formatMoney(calculation.finalTotal)}，會新增為一筆支出。</p>
+                    {!travelProjects.length ? <p className="text-sm text-orange-700">請先建立旅遊專案與成員，再回來匯入。</p> : <>
+                    <label className="block text-sm font-bold">旅遊專案<select aria-label="旅遊專案" value={targetId} disabled={busy} onChange={e=>setTargetId(e.target.value)} className="mt-2 p-3 border rounded-xl w-full">{travelProjects.map(p=><option key={p.id} value={p.id}>{p.data.name || p.name || '未命名旅遊'}{window.SplitEasyDiningImport.hasImport(p.data,sourceId)?'（已匯入）':''}</option>)}</select></label>
+                    <label className="block text-sm font-bold">旅遊天數<select aria-label="旅遊天數" value={day} disabled={busy} onChange={e=>setDay(Number(e.target.value))} className="mt-2 p-3 border rounded-xl w-full">{Array.from({length:Math.max(1,parseInt(target?.data.days,10)||1)},(_,i)=><option key={i+1} value={i+1}>第 {i+1} 天</option>)}</select></label>
+                    <div><h4 className="font-bold text-sm mb-2">核對成員</h4><p className="text-xs text-slate-500 mb-3">唯一同名會自動對應；未參加聚餐的旅遊成員不分攤。每人只能對應一次。</p>
+                    <div className="space-y-3">{data.people.map(p=><label key={p.id} className="block text-sm"><span className="flex justify-between gap-2"><span className="break-words">{getPersonNameHelper(p.id,data.people)}</span><b className="shrink-0">{formatMoney(calculation.results.find(r=>r.id===p.id)?.amount || 0)}</b></span>
+                    <select aria-label={`對應 ${getPersonNameHelper(p.id,data.people)}`} value={mapping[p.id] || ''} disabled={busy} onChange={e=>{setMapping(current=>({...current,[p.id]:e.target.value}));setAccepted(false);}} className="mt-1 p-3 border rounded-xl w-full"><option value="">請選擇旅遊成員</option>{(target?.data.people || []).map(t=><option key={t.id} value={String(t.id)}>{getPersonNameHelper(t.id,target.data.people)}{(target.data.people.filter(x=>x.name?.trim()===t.name?.trim()).length>1)?`（成員 ${target.data.people.indexOf(t)+1}）`:''}</option>)}</select></label>)}</div></div>
+                    <div className="text-xs bg-teal-50 rounded-xl p-3 leading-relaxed text-teal-800">保留每人的金額及實際付款人，旅遊會合併其他支出重新計算轉帳。這筆紀錄保留匯入時的內容。</div>
+                    <label className="flex items-start gap-2 text-sm"><input aria-label="這餐尚未另外結清，改由旅遊統一結算" type="checkbox" checked={accepted} disabled={busy} onChange={e=>setAccepted(e.target.checked)} className="mt-1 shrink-0"/><span>這餐尚未另外結清，改由旅遊統一結算。</span></label>
+                    </>}
+                    {(error || validation) && <p role="alert" className="text-sm text-red-600">{error || validation}</p>}
+                    <div className="flex gap-3"><button disabled={busy} onClick={onClose} className="flex-1 p-3 bg-slate-100 rounded-xl font-bold">取消</button><button disabled={busy || !!validation || !accepted} onClick={submit} className="flex-1 p-3 bg-teal-600 text-white rounded-xl font-bold disabled:opacity-40">{busy?'匯入中…':'確認匯入'}</button></div>
+                </section>
+            </div>;
+        };
+        const ImportedDiningEditModal = ({ expense, dayCount, onSave, onClose }) => {
+            const [desc,setDesc]=useState(expense.desc),[day,setDay]=useState(expense.day);
+            return <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-3"><section role="dialog" aria-modal="true" aria-label="聚餐匯入明細" className="bg-white rounded-2xl p-5 w-full max-w-md max-h-[92vh] overflow-y-auto space-y-4">
+            <h3 className="font-bold text-xl">聚餐匯入明細</h3>
+            <label className="block text-sm font-bold">費用名稱<input aria-label="費用名稱" value={desc} onChange={e=>setDesc(e.target.value)} className="w-full p-3 border rounded-xl mt-2"/></label>
+            <label className="block text-sm font-bold">旅遊天數<select aria-label="旅遊天數" value={day} onChange={e=>setDay(Number(e.target.value))} className="w-full p-3 border rounded-xl mt-2">{Array.from({length:dayCount},(_,i)=><option key={i+1} value={i+1}>第 {i+1} 天</option>)}</select></label>
+            <p className="font-bold text-teal-700">合計 {formatMoney(expense.amount)}</p><DiningImportDetails snapshot={expense.diningImport}/>
+            <p className="text-xs text-slate-500 leading-relaxed">需要修改付款人或負擔金額時，請刪除旅遊中的這筆支出，修正原聚餐後再重新匯入。</p>
+            <div className="flex gap-3"><button onClick={onClose} className="flex-1 p-3 bg-slate-100 rounded-xl font-bold">關閉</button><button disabled={!desc.trim()} onClick={()=>{onSave({desc:desc.trim(),day});onClose();}} className="flex-1 p-3 bg-teal-600 text-white rounded-xl font-bold disabled:opacity-40">儲存名稱與天數</button></div>
+            </section></div>;
+        };
+        const TravelExpenseDetails = ({ groups, total }) => {
+            const [collapsedDays, setCollapsedDays] = useState([]);
+            return <section aria-label="旅遊費用明細" className="pt-5 border-t border-slate-100">
+                <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                    <h4 className="font-bold text-slate-800">費用明細</h4>
+                    {groups.length > 0 && <div className="flex gap-3 text-xs font-bold text-teal-700">
+                        <button type="button" onClick={() => setCollapsedDays([])}>全部展開</button>
+                        <button type="button" onClick={() => setCollapsedDays(groups.map(group => group.day))}>全部收合</button>
+                    </div>}
+                </div>
+                <p className="text-xs text-slate-500 mb-4">上方轉帳金額包含全旅程支出。</p>
+                <div className="space-y-3">{groups.map(group => <details key={group.day} open={!collapsedDays.includes(group.day)} className="rounded-xl border border-slate-200 overflow-hidden">
+                    <summary onClick={event => { event.preventDefault(); setCollapsedDays(current => current.includes(group.day) ? current.filter(day => day !== group.day) : [...current, group.day]); }} className="cursor-pointer bg-slate-50 p-3 text-sm">
+                        <span className="inline-flex flex-wrap items-center justify-between gap-x-3 gap-y-1 max-w-full align-middle">
+                            <b>第 {group.day} 天 · {group.rows.length} 筆</b><span className="font-bold text-teal-700">小計 {formatMoney(group.total)}</span>
+                        </span>
+                    </summary>
+                    <div className="p-3 space-y-4">{group.rows.map(row=><div key={row.id}><ExpenseRows rows={[row]}/>{row.diningImport && <details className="mt-2 rounded-lg bg-slate-50 p-3"><summary className="text-xs font-bold text-teal-700 cursor-pointer">查看聚餐明細與各人負擔</summary><div className="pt-3"><DiningImportDetails snapshot={row.diningImport}/></div></details>}</div>)}</div>
+                </details>)}</div>
+                {groups.length === 0 && <p className="text-sm text-slate-400">尚無費用紀錄。</p>}
+                <div className="flex justify-between gap-3 border-t border-slate-100 mt-4 pt-4 font-bold"><span>全旅程合計</span><span className="shrink-0 text-teal-700">{formatMoney(total)}</span></div>
+            </section>;
+        };
+
         class AppErrorBoundary extends React.Component {
             constructor(props) {
                 super(props);
@@ -865,6 +999,131 @@
                     </div>
                 </div>
             );
+        };
+
+
+        const receiptItemName = item => item.quantity > 1 ? `${item.name} ×${item.quantity}` : item.name;
+        let receiptItemsRuntimePromise = null;
+        const loadReceiptItemsRuntime = () => {
+            if (window.Tesseract?.createWorker) return Promise.resolve(window.Tesseract);
+            if (receiptItemsRuntimePromise) return receiptItemsRuntimePromise;
+            receiptItemsRuntimePromise = new Promise((resolve, reject) => {
+                const script = document.createElement('script');
+                script.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js';
+                script.crossOrigin = 'anonymous';
+                const timer = window.setTimeout(() => { script.remove(); reject(new Error('辨識元件下載逾時，請確認網路後重試。')); }, 25000);
+                script.onload = () => { window.clearTimeout(timer); if (window.Tesseract?.createWorker) resolve(window.Tesseract); else reject(new Error('辨識元件未正確載入。')); };
+                script.onerror = () => { window.clearTimeout(timer); script.remove(); reject(new Error('無法下載辨識元件，請確認公司網路是否允許 jsDelivr。')); };
+                document.head.appendChild(script);
+            }).catch(error => { receiptItemsRuntimePromise = null; throw error; });
+            return receiptItemsRuntimePromise;
+        };
+
+        const ReceiptItemsModal = ({ onClose, onApply }) => {
+            const cameraRef = useRef(null), galleryRef = useRef(null), workerRef = useRef(null);
+            const liveRef = useRef(true), runRef = useRef(0), appliedRef = useRef(false);
+            const [text, setText] = useState(''), [raw, setRaw] = useState('');
+            const [busy, setBusy] = useState(false), [progress, setProgress] = useState(''), [error, setError] = useState('');
+            const [language, setLanguage] = useState('chi_tra'), [adjustments, setAdjustments] = useState([]), [receiptTotal, setReceiptTotal] = useState(null);
+            useEffect(() => () => { liveRef.current = false; runRef.current += 1; workerRef.current?.terminate().catch(() => {}); }, []);
+            const parsed = window.SplitEasyReceiptItems?.parse(text) || { items: [], unresolved: [], ignored: [], total: null };
+            const items = parsed.items.filter(item => item.kind === 'item' && item.amount > 0);
+            const detectedAdjustments = [...adjustments, ...parsed.items.filter(item => item.kind !== 'item')].filter((item, index, all) => all.findIndex(other => other.name === item.name && other.amount === item.amount) === index);
+            const subtotal = items.reduce((sum, item) => sum + item.amount, 0);
+            const billTotal = parsed.total ?? receiptTotal;
+            const organize = (input, newPhoto = false) => {
+                const result = window.SplitEasyReceiptItems.parse(input);
+                const detected = result.items.filter(item => item.kind !== 'item');
+                setAdjustments(current => newPhoto || detected.length ? detected : current);
+                setReceiptTotal(current => newPhoto ? result.total : result.total ?? current);
+                const rows = String(input).split(/\r?\n/).flatMap(line => {
+                    const item = result.items.find(candidate => candidate.rawLine === line);
+                    if (item) return item.kind === 'item' && item.amount > 0 ? [receiptItemName(item) + '  ' + item.amount] : [];
+                    return result.unresolved.includes(line) ? [line] : [];
+                });
+                setText(rows.join('\n'));
+            };
+            const handleFile = async event => {
+                const file = event.target.files?.[0];
+                event.target.value = '';
+                if (!file) return;
+                const run = ++runRef.current;
+                const active = () => liveRef.current && run === runRef.current;
+                setBusy(true); setError(''); setProgress('準備照片與下載辨識元件');
+                let worker;
+                try {
+                    const image = await window.SplitEasyReceiptOcr.preprocessImage(file);
+                    const Tesseract = await loadReceiptItemsRuntime();
+                    if (!active()) return;
+                    worker = await Tesseract.createWorker(language === 'eng' ? ['eng'] : ['chi_tra', 'eng'], 1, {
+                        workerPath: 'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/worker.min.js',
+                        corePath: 'https://cdn.jsdelivr.net/npm/tesseract.js-core@5.1.1',
+                        workerBlobURL: true,
+                        logger: message => {
+                            if (!active()) return;
+                            const label = message.status === 'recognizing text' ? '辨識帳單文字' : message.status === 'loading language traineddata' ? '下載語言字庫' : '準備辨識';
+                            setProgress(`${label} ${Math.round((message.progress || 0) * 100)}%`);
+                        }
+                    });
+                    workerRef.current = worker;
+                    if (!active()) return;
+                    await worker.setParameters({ preserve_interword_spaces: '1' });
+                    const result = await worker.recognize(image.dataUrl);
+                    if (!active()) return;
+                    setRaw(result.data.text);
+                    organize(result.data.text, true);
+                    if (!result.data.text.trim()) setError('沒有讀到文字，請換一張清楚、平整且沒有反光的照片。');
+                } catch (problem) {
+                    if (active()) setError(`辨識未完成：${problem.message || '請重試。'} 可重新選圖，或在預覽框直接輸入品項。`);
+                } finally {
+                    if (worker) await worker.terminate().catch(() => {});
+                    if (workerRef.current === worker) workerRef.current = null;
+                    if (active()) { setBusy(false); setProgress(''); }
+                }
+            };
+            const apply = () => {
+                if (appliedRef.current || busy || !items.length || parsed.unresolved.length) return;
+                appliedRef.current = true;
+                if (onApply(items) === false) { appliedRef.current = false; return; }
+                onClose();
+            };
+            return <div role="dialog" aria-modal="true" aria-labelledby="receipt-items-title" className="fixed inset-0 bg-black/60 z-[9998] flex items-end sm:items-center justify-center sm:p-4">
+                <div className="bg-white rounded-t-3xl sm:rounded-3xl w-full max-w-md max-h-[92vh] overflow-y-auto">
+                    <div className="sticky top-0 bg-white z-10 border-b border-slate-100 px-5 py-4 flex items-center justify-between gap-3">
+                        <h3 id="receipt-items-title" className="font-bold text-lg">拍帳單批次新增</h3>
+                        <button type="button" onClick={onClose} aria-label="關閉帳單預覽" className="w-9 h-9 rounded-full bg-slate-100 shrink-0">×</button>
+                    </div>
+                    <div className="p-5 space-y-4">
+                        <p className="text-xs text-slate-500 leading-relaxed">拍照後會依品項分行。先修正內容再匯入，誰該負擔留在原頁設定。照片只在這台裝置辨識；首次使用需連網下載元件與字庫。</p>
+                        <label className="block text-xs text-slate-500">辨識語言<select value={language} disabled={busy} onChange={event => setLanguage(event.target.value)} className="block w-full mt-1 p-3 bg-slate-50 border rounded-xl"><option value="chi_tra">繁體中文＋英文</option><option value="eng">英文</option></select></label>
+                        <div className="grid grid-cols-2 gap-3">
+                            <button type="button" disabled={busy} onClick={() => cameraRef.current?.click()} className="p-3 rounded-xl bg-teal-600 text-white font-bold disabled:opacity-40">拍照辨識</button>
+                            <button type="button" disabled={busy} onClick={() => galleryRef.current?.click()} className="p-3 rounded-xl border border-teal-300 text-teal-700 font-bold disabled:opacity-40">從相簿選取</button>
+                        </div>
+                        <input ref={cameraRef} data-testid="receipt-camera" type="file" accept="image/*" capture="environment" onChange={handleFile} className="hidden" />
+                        <input ref={galleryRef} data-testid="receipt-gallery" type="file" accept="image/*" onChange={handleFile} className="hidden" />
+                        {busy && <p role="status" className="text-sm font-bold text-teal-700">{progress}，請稍候…</p>}
+                        {error && <p role="alert" className="rounded-xl bg-red-50 p-3 text-xs text-red-700 whitespace-pre-wrap">{error}</p>}
+                        <div>
+                            <label htmlFor="receipt-items-text" className="block text-sm font-bold mb-2">品項預覽（可直接修改）</label>
+                            <textarea id="receipt-items-text" rows="8" value={text} disabled={busy} onChange={event => applyInputValue(event, setText)} placeholder={'牛肉麵 ×2 300\n鮭魚丼飯 220'} className="w-full rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm leading-relaxed" />
+                            <div className="flex justify-between items-start gap-3 mt-2">
+                                <p className="text-[11px] text-slate-500">格式：品項名稱 ×數量 小計。數量與小計之間請留空白，例如「牛肉麵 ×2 300」，代表 2 碗合計 300 元。</p>
+                                <button type="button" disabled={busy || !text.trim()} onClick={() => organize(text)} className="shrink-0 text-xs text-teal-700 font-bold disabled:opacity-40">整理分行</button>
+                            </div>
+                        </div>
+                        {parsed.unresolved.length > 0 && <p role="alert" className="rounded-xl bg-amber-50 p-3 text-xs text-amber-800">有 {parsed.unresolved.length} 行尚無法辨識。請在預覽框修正或刪除非品項文字，再確認匯入。</p>}
+                        {detectedAdjustments.length > 0 && <div className="rounded-xl bg-amber-50 p-3 text-xs text-amber-800 leading-relaxed"><b>以下不列入本次品項匯入，請回原頁另行處理：</b>{detectedAdjustments.map((item, index) => <p key={index}>{item.name}　{formatMoney(item.amount)}</p>)}</div>}
+                        <div className="rounded-xl bg-teal-50 p-3 space-y-1 text-sm">
+                            <div className="flex justify-between gap-3 font-bold text-teal-800"><span>將新增 {items.length} 筆品項</span><span>{formatMoney(subtotal)}</span></div>
+                            <p className="text-[11px] text-teal-700">未含服務費與折扣；匯入後請核對原頁設定。</p>
+                            {billTotal != null && <p className="text-[11px] text-slate-500">辨識到帳單總額 {formatMoney(billTotal)}，供你核對。</p>}
+                        </div>
+                        {raw && <details className="text-xs text-slate-500"><summary className="cursor-pointer">查看原始辨識文字</summary><pre className="mt-2 whitespace-pre-wrap break-words bg-slate-50 p-3 rounded-xl">{raw}</pre></details>}
+                        <button type="button" onClick={apply} disabled={busy || !items.length || parsed.unresolved.length > 0} className="w-full p-4 rounded-xl bg-teal-600 text-white font-bold disabled:opacity-40">確認並匯入品項</button>
+                    </div>
+                </div>
+            </div>;
         };
 
         const TaiwanInvoiceScannerModal = ({ people, onClose, onApply, showMessage, applyLabel = '確認並匯入混合分攤' }) => {
@@ -1323,8 +1582,9 @@
             );
         };
 
-        const DiningMode = ({ projectData, onUpdate, showMessage }) => {
-            const [step, setStep] = useState(1);
+        const DiningMode = ({ projectData, onUpdate, showMessage, initialStep = 1, sourceProjectId, travelProjects = [], onImportToTravel }) => {
+            const [step, setStep] = useState(initialStep);
+            const [showReceiptItems, setShowReceiptItems] = useState(false);
             const [showInvoiceScanner, setShowInvoiceScanner] = useState(false);
             const [showWalletSettings, setShowWalletSettings] = useState(false);
             const withDiningDefaults = (source) => ({
@@ -1398,6 +1658,23 @@
                 const selectedIds = (item.participantIds || []).filter(id => allPersonIds.includes(id));
                 const isEveryoneSelected = allPersonIds.length > 0 && selectedIds.length === allPersonIds.length;
                 updateDiningItem(item.id, { participantIds: isEveryoneSelected ? [] : allPersonIds });
+            };
+
+            const importReceiptItems = items => {
+                if (!data.people.length) { showMessage({ message: '請先新增成員，再匯入品項。' }); return false; }
+                const batchId = createInviteToken();
+                const ids = items.map((_, index) => `${batchId}-${index}`);
+                setData(prev => {
+                    const all = prev.people.map(person => person.id);
+                    const existing = prev.splitMode === 'mixed' ? (prev.diningItems || [])
+                        : prev.splitMode === 'custom' ? prev.people.filter(person => parseFloat(prev.customAmounts?.[person.id]) > 0).map(person => ({ id: `${batchId}-old-${person.id}`, name: `${getPersonNameHelper(person.id, prev.people)}原有餐費`, amount: parseFloat(prev.customAmounts[person.id]), participantIds: [person.id] }))
+                        : parseFloat(prev.totalBill) > 0 ? [{ id: `${batchId}-old`, name: '原有聚餐費用', amount: parseFloat(prev.totalBill), participantIds: all }] : [];
+                    const added = items.map((item, index) => ({ id: ids[index], name: receiptItemName(item), quantity: item.quantity, amount: item.amount, participantIds: all }));
+                    return { ...prev, splitMode: 'mixed', diningItems: [...existing, ...added] };
+                });
+                setStep(3);
+                showMessage({ title: '品項已新增', message: `已追加 ${items.length} 筆品項。請在下方逐筆調整誰該負擔；服務費沿用原設定，折扣請另行核對。` });
+                return true;
             };
             const handleInvoiceApply = ({ items, invoice }) => {
                 const subtotal = items.reduce((sum, item) => sum + (parseFloat(item.amount) || 0), 0);
@@ -1476,6 +1753,7 @@
                                     <i className="fa-solid fa-qrcode"></i> 掃描電子發票
                                 </button>
                             </div>
+                            <button type="button" onClick={() => setShowReceiptItems(true)} className="w-full mb-4 p-3 rounded-xl bg-teal-50 border border-teal-200 text-teal-700 font-bold">拍帳單批次新增</button>
                             <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 space-y-6">
                                 {data.splitMode === 'even' ? <div><label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">餐點小計</label><div className="relative"><i className="fa-solid fa-dollar-sign absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"></i><input type="number" min="0" placeholder="0" className="w-full pl-10 pr-4 py-4 rounded-xl border border-slate-200 text-2xl font-bold outline-none bg-slate-50" value={data.totalBill} onChange={e => updateData('totalBill', e.target.value)} /></div></div> : <p className="text-xs text-orange-600">{data.splitMode === 'mixed' ? '各筆共享或個人品項會在下方自動加總。' : '個別套餐會在下方自動加總，不需要重複填寫餐點小計。'}</p>}
                                 <div>
@@ -1533,19 +1811,21 @@
                             </div>
                         </div>
                     )}
-                    {step === 4 && <DiningResult data={data} calculation={calculation} onBack={() => setStep(3)} showMessage={showMessage} />}
+                    {step === 4 && <DiningResult data={data} calculation={calculation} onBack={() => setStep(3)} showMessage={showMessage} sourceProjectId={sourceProjectId} travelProjects={travelProjects} onImportToTravel={onImportToTravel} />}
+                    {showReceiptItems && <ReceiptItemsModal onClose={() => setShowReceiptItems(false)} onApply={importReceiptItems} />}
                     {showInvoiceScanner && <TaiwanInvoiceScannerModal people={data.people} onClose={() => setShowInvoiceScanner(false)} onApply={handleInvoiceApply} showMessage={showMessage} />}
                 </div>
             );
         };
 
-        const DiningResult = ({ data, calculation, onBack, showMessage }) => {
-            const resultRef = useRef(null);
+        const DiningResult = ({ data, calculation, onBack, showMessage, sourceProjectId, travelProjects = [], onImportToTravel }) => {
+            const [showTripImport,setShowTripImport] = useState(false);
             const { finalTotal, results, payerId, payerWalletId, wallets, transfers } = calculation;
             const payerIndex = data.people.findIndex(person => person.id === payerId);
             const payerName = payerIndex >= 0 ? getPersonNameHelper(payerId, data.people) : '付款人';
             const hasSharedWallet = wallets.some(wallet => wallet.members.length > 1);
             const receivingName = getPersonNameHelper(payerWalletId, data.people);
+            const expenseRows = getDiningExpenseRows(data, calculation);
             const resultText = [
                 `${data.title || '本次聚餐'}｜總額 ${formatMoney(finalTotal)}`,
                 `付款人：${payerName}`,
@@ -1554,23 +1834,15 @@
                 ...results.map(result => `．${result.name}負擔 ${formatMoney(result.amount)}${result.detail ? `（${result.detail}）` : ''}`),
                 ...(hasSharedWallet ? ['', '錢包結算合計', ...wallets.map(wallet => `．${wallet.name}${wallet.members.length > 1 ? ` 的錢包（${wallet.members.map(member => member.name).join('、')}）` : ''}：${formatMoney(wallet.amount)}`)] : []),
                 '', '建議轉帳',
-                ...(transfers.length ? transfers.map(item => `．${item.from} 轉給 ${item.to} ${formatMoney(item.amount)}`) : ['無需轉帳'])
+                ...(transfers.length ? transfers.map(item => `．${item.from} 轉給 ${item.to} ${formatMoney(item.amount)}`) : ['無需轉帳']),
+                '', '費用明細', ...expenseRows.map(row => `．${row.name} ${formatMoney(row.amount)}`), `本次合計 ${formatMoney(finalTotal)}`
             ].join('\n');
 
-            const handleDownloadImage = async () => {
-                if (resultRef.current && window.html2canvas) { 
-                    const canvas = await window.html2canvas(resultRef.current, { scale: 2 }); 
-                    const link = document.createElement('a'); 
-                    link.download = `${data.title}_分帳卡.png`; 
-                    link.href = canvas.toDataURL(); 
-                    link.click(); 
-                }
-            };
 
             return (
                 <div className="px-6 animate-fade-in pb-10">
                     <h2 className="text-2xl font-bold mb-4">計算結果</h2>
-                    <div ref={resultRef} className="bg-white p-6 rounded-2xl shadow-xl border border-slate-100 mb-6 relative overflow-hidden">
+                    <div className="bg-white p-6 rounded-2xl shadow-xl border border-slate-100 mb-6 relative overflow-hidden">
                         <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-orange-400 to-red-500"></div>
                         <div className="flex flex-wrap justify-between items-end gap-3 mb-6 pb-6 border-b border-dashed border-slate-200">
                             <div className="min-w-0 flex-1"><h3 className="text-xl font-bold text-slate-800 break-words">{data.title || '快樂聚餐'}</h3><p className="text-slate-500 text-sm">{data.date}</p></div>
@@ -1588,14 +1860,23 @@
                             </div>
                         ))}</div>
                         <div className="mt-6 pt-5 border-t border-dashed border-slate-200"><h4 className="text-xs font-bold text-slate-400 uppercase mb-3">建議轉帳</h4>{transfers.length > 0 ? <div className="space-y-2">{transfers.map((item, index) => <div key={index} className="flex justify-between items-start gap-3 rounded-lg bg-teal-50 px-3 py-3 text-sm"><span className="min-w-0 break-words"><b>{item.from}</b> 轉給 {item.to}</span><b className="text-teal-700 shrink-0">{formatMoney(item.amount)}</b></div>)}</div> : <p className="rounded-xl bg-teal-50 p-3 text-sm text-teal-700">無需轉帳{hasSharedWallet && wallets.length === 1 ? '，所有成員都在同一個錢包。' : '。'}</p>}{hasSharedWallet && <p className="text-[11px] text-slate-400 leading-relaxed mt-3">以上由錢包代表統一結算，同一錢包內不另列轉帳。</p>}</div>
+                        <section aria-label="聚餐費用明細" className="mt-6 pt-5 border-t border-slate-100">
+                            <h4 className="font-bold text-slate-800 mb-4">費用明細</h4>
+                            <ExpenseRows rows={expenseRows} />
+                            {expenseRows.length === 0 && <p className="text-sm text-slate-400">尚無費用紀錄。</p>}
+                            <div className="flex justify-between gap-3 border-t border-slate-100 mt-4 pt-4 font-bold"><span>本次合計</span><span className="shrink-0 text-orange-600">{formatMoney(finalTotal)}</span></div>
+                        </section>
                     </div>
-                    <div className="grid grid-cols-2 gap-4 mb-4"><button onClick={() => {copyToClipboard(resultText); showMessage({message: '明細已複製！'});}} className="bg-blue-50 text-blue-600 p-4 rounded-xl font-bold flex items-center justify-center gap-2"><i className="fa-solid fa-copy"></i> 複製文字</button><button onClick={handleDownloadImage} className="bg-orange-50 text-orange-600 p-4 rounded-xl font-bold flex items-center justify-center gap-2"><i className="fa-solid fa-download"></i> 下載圖片</button></div>
+                    <div className="mb-4"><button onClick={() => {copyToClipboard(resultText); showMessage({message: '明細已複製！'});}} className="w-full bg-blue-50 text-blue-600 p-4 rounded-xl font-bold flex items-center justify-center gap-2"><i className="fa-solid fa-copy"></i> 複製文字</button></div>
+                    {onImportToTravel && <div className="mb-4">{data.travelImport && <p className="text-xs text-teal-700 mb-3 leading-relaxed">上次匯入：{data.travelImport.targetProjectName}。請至旅遊確認紀錄並統一結算；修改本餐不會自動更新旅遊。</p>}<button onClick={()=>setShowTripImport(true)} className="w-full p-4 bg-teal-600 text-white rounded-xl font-bold">匯入旅遊專案</button></div>}
                     <button onClick={onBack} className="w-full bg-slate-100 text-slate-600 p-4 rounded-xl font-bold">修改設定</button>
+                    {showTripImport && <DiningTripImportModal sourceId={sourceProjectId} data={data} calculation={calculation} travelProjects={travelProjects} onImport={onImportToTravel} onClose={()=>setShowTripImport(false)}/>}
+
                 </div>
             );
         };
 
-        const TravelMode = ({ projectData, onUpdate, showMessage }) => {
+        const TravelMode = ({ projectData, onUpdate, showMessage, initialTab = 'setup' }) => {
             const normalizeTravelData = (source) => {
                 const expenses = (source?.expenses || []).map(expense => ({
                     ...expense,
@@ -1609,11 +1890,13 @@
                     days: Math.max(1, parseInt(source?.days, 10) || 1, highestExpenseDay)
                 };
             };
-            const [tab, setTab] = useState('setup');
+            const [tab, setTab] = useState(initialTab);
+            const [showReceiptItems, setShowReceiptItems] = useState(false);
             const [showAddModal, setShowAddModal] = useState(false);
             const [showReceiptScanner, setShowReceiptScanner] = useState(false);
             const [receiptDraft, setReceiptDraft] = useState(null);
             const [editingExpense, setEditingExpense] = useState(null);
+            const [importedExpense,setImportedExpense] = useState(null);
             const [trip, setTrip] = useState(() => normalizeTravelData(projectData));
             const [showWalletSetup, setShowWalletSetup] = useState(false);
             const [activeDay, setActiveDay] = useState(1);
@@ -1650,11 +1933,32 @@
                 const id = Date.now();
                 setTrip(prev => ({ ...prev, people: [...prev.people, { id, name: '', payerId: id }] }));
             };
-            const removePerson = (id) => { if (trip.people.length > 1) setTrip(prev => ({ ...prev, people: prev.people.filter(p => p.id !== id) })); };
+            const removePerson = (id) => {
+                if (trip.expenses.some(e=>e.diningImport && (Object.prototype.hasOwnProperty.call(e.splitAmounts || {},id) || Object.prototype.hasOwnProperty.call(e.payers || {},id)))) {
+                    showMessage({message:'這位成員仍在匯入的聚餐中，請先刪除該聚餐支出再移除成員。'}); return;
+                }
+                if (trip.people.length > 1) setTrip(prev => ({ ...prev, people: prev.people.filter(p => p.id !== id) })); };
             const addTripDay = () => {
                 const nextDay = tripDayCount + 1;
                 setTrip(prev => ({ ...prev, days: nextDay }));
                 setActiveDay(nextDay);
+            };
+
+            const importReceiptItems = items => {
+                if (!trip.people.length) { showMessage({ message: '請先新增成員，再匯入品項。' }); return false; }
+                const batchId = createInviteToken();
+                const importedAt = new Date().toISOString();
+                const importedDay = activeDay;
+                setTrip(prev => ({
+                    ...prev,
+                    expenses: [...prev.expenses, ...items.map((item, index) => ({
+                        id: `${batchId}-${index}`, desc: receiptItemName(item), amount: item.amount, day: importedDay,
+                        payers: { [prev.people[0].id]: item.amount }, splitBetween: prev.people.map(person => person.id),
+                        receiptMeta: { source: 'receipt-items-ocr', currency: 'TWD', originalAmount: item.amount, exchangeRate: 1, quantity: item.quantity, batchId, importedAt }
+                    }))]
+                }));
+                showMessage({ title: '品項已新增', message: `已追加 ${items.length} 筆至第 ${importedDay} 天。請逐筆編輯付款人與分攤者；服務費／折扣請另行核對。` });
+                return true;
             };
             const addExpense = (newEx) => {
                 const expenseDay = Math.max(1, parseInt(newEx.day, 10) || activeDay);
@@ -1668,6 +1972,7 @@
             };
             const deleteExpense = (id) => setTrip(prev => ({ ...prev, expenses: prev.expenses.filter(e => e.id !== id) }));
             const handleEditClick = (expense) => {
+                if (expense.diningImport) { setImportedExpense(expense); return; }
                 setReceiptDraft(null);
                 setEditingExpense(expense);
                 setActiveDay(Math.max(1, parseInt(expense.day, 10) || 1));
@@ -1712,6 +2017,7 @@
                                         })}
                                     </div>
                                 </div>
+                                <button type="button" onClick={() => setShowReceiptItems(true)} className="w-full mb-4 p-3 rounded-xl bg-teal-50 border border-teal-200 text-teal-700 font-bold">拍帳單批次新增</button>
                                 <div className="bg-teal-600 text-white p-6 rounded-2xl shadow-lg mb-6">
                                     <div className="flex items-start justify-between gap-3"><p className="text-teal-100 text-sm">第 {activeDay} 天支出</p><span className="text-xs bg-teal-700/50 px-3 py-1 rounded-full whitespace-nowrap">旅程累計 {formatMoney(tripTotal)}</span></div>
                                     <h2 className="text-4xl font-bold mt-1">{formatMoney(activeDayTotal)}</h2>
@@ -1722,7 +2028,7 @@
                                     {activeDayExpenses.map((exp) => (
                                         <div key={exp.id} className="bg-white p-4 rounded-xl shadow-sm border border-slate-100">
                                             <div className="flex justify-between items-start mb-2"><div><p className="font-bold text-slate-800">{exp.desc}</p><div className="flex items-center gap-1 mt-1"><i className="fa-solid fa-arrow-right-arrow-left text-xs text-slate-400"></i><p className="text-xs text-slate-500">{Object.keys(exp.payers).map(pid => getPersonNameHelper(pid, trip.people)).join(', ')} 付款</p></div>{exp.receiptMeta && <div className="flex items-center gap-1 mt-1"><i className="fa-solid fa-camera text-[10px] text-blue-400"></i><p className="text-[11px] text-blue-500">{exp.receiptMeta.currency !== 'TWD' ? `${exp.receiptMeta.currency} ${exp.receiptMeta.originalAmount} × ${exp.receiptMeta.exchangeRate}` : exp.receiptMeta.source === 'taiwan-einvoice' ? `電子發票 ${exp.receiptMeta.invoiceNumber || ''}` : '收據匯入'}</p></div>}</div><div className="flex items-center gap-2"><span className="font-bold text-teal-600">{formatMoney(exp.amount)}</span><button onClick={() => handleEditClick(exp)} className="p-2 bg-slate-50 rounded text-slate-400" aria-label={`編輯${exp.desc}`}><i className="fa-solid fa-pencil"></i></button><button onClick={() => deleteExpense(exp.id)} className="p-2 bg-slate-50 rounded text-slate-400 hover:text-red-500" aria-label={`刪除${exp.desc}`}><i className="fa-solid fa-trash"></i></button></div></div>
-                                            <div className="pt-2 border-t border-slate-50 flex items-start gap-2"><i className="fa-solid fa-users text-xs text-slate-400 mt-1"></i><p className="text-xs text-slate-400">分攤: {exp.splitBetween.length === trip.people.length ? '全員' : exp.splitBetween.map(id => getPersonNameHelper(id, trip.people)).join(', ')}</p></div>
+                                            <div className="pt-2 border-t border-slate-50 flex items-start gap-2"><i className="fa-solid fa-users text-xs text-slate-400 mt-1"></i><p className="text-xs text-slate-400">{exp.diningImport ? '依原聚餐個人金額分攤: ' : '分攤: '}{exp.splitBetween.length === trip.people.length ? '全員' : exp.splitBetween.map(id => getPersonNameHelper(id, trip.people)).join(', ')}</p></div>
                                         </div>
                                     ))}
                                 </div>
@@ -1731,7 +2037,9 @@
                         )}
                         {tab === 'settle' && <SettlementView trip={trip} showMessage={showMessage} />}
                     </div>
+                    {importedExpense && <ImportedDiningEditModal expense={importedExpense} dayCount={tripDayCount} onClose={()=>setImportedExpense(null)} onSave={patch=>setTrip(prev=>({...prev,expenses:prev.expenses.map(e=>e.id===importedExpense.id?{...e,...patch}:e)}))}/>}
                     {showAddModal && <AddExpenseModal people={trip.people} dayCount={tripDayCount} defaultDay={activeDay} initialData={editingExpense} prefillData={receiptDraft} onScanReceipt={() => { setShowAddModal(false); setShowReceiptScanner(true); }} onClose={() => { setShowAddModal(false); setEditingExpense(null); setReceiptDraft(null); }} onAdd={addExpense} onUpdate={updateExpense} getPersonName={(id) => getPersonNameHelper(id, trip.people)} showMessage={showMessage} />}
+                    {showReceiptItems && <ReceiptItemsModal onClose={() => setShowReceiptItems(false)} onApply={importReceiptItems} />}
                     {showReceiptScanner && <TravelReceiptCaptureModal people={trip.people} defaultDay={activeDay} onClose={() => { setShowReceiptScanner(false); setShowAddModal(true); }} onCreateDraft={handleReceiptDraft} showMessage={showMessage} />}
                 </div>
             );
@@ -1741,21 +2049,22 @@
             const result = calculateSettlementHelper(trip);
             if (result.error) return <div className="p-6 pb-24 flex flex-col items-center justify-center h-full text-center"><div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mb-4"><i className="fa-solid fa-triangle-exclamation text-3xl text-red-500"></i></div><h3 className="font-bold text-xl text-slate-800">資料格式異常</h3><p className="text-slate-500 text-sm mt-2 max-w-xs">偵測到異常，無法結算。</p></div>;
             const { overview, transactions } = result;
-            const settlementRef = useRef(null);
-            const settlementText = [`${trip.name || '本次旅遊'}｜結算`, ...transactions.map(transaction => `．${getPersonNameHelper(transaction.from, trip.people)} 付給 ${getPersonNameHelper(transaction.to, trip.people)} ${formatMoney(Math.round(transaction.amount))}`)].join('\n');
+            const expenseGroups = getTravelExpenseGroups(trip);
+            const expenseCount = expenseGroups.reduce((sum, group) => sum + group.rows.length, 0);
+            const expenseTotal = expenseGroups.reduce((sum, group) => sum + group.total, 0);
+            const settlementText = [`${trip.name || '本次旅遊'}｜全旅程結算`, ...transactions.map(transaction => `．${getPersonNameHelper(transaction.from, trip.people)} 付給 ${getPersonNameHelper(transaction.to, trip.people)} ${formatMoney(Math.round(transaction.amount))}`), ...(transactions.length ? [] : ['無需轉帳']), '', '費用明細', ...expenseGroups.flatMap(group => [`第 ${group.day} 天｜小計 ${formatMoney(group.total)}`, ...group.rows.map(row => `．${row.name} ${formatMoney(row.amount)}`)]), `全旅程合計 ${formatMoney(expenseTotal)}`].join('\n');
 
-            const handleDownload = async () => { if (settlementRef.current && window.html2canvas) { const canvas = await window.html2canvas(settlementRef.current, { scale: 2 }); const link = document.createElement('a'); link.download = `結算清單.png`; link.href = canvas.toDataURL(); link.click(); } };
 
             return (
                 <div className="p-6 pb-24">
                     <h2 className="text-2xl font-bold mb-4">結算中心</h2>
-                    <div ref={settlementRef} className="bg-white p-6 rounded-2xl shadow-lg border border-slate-100 space-y-6">
-                        <div className="text-center border-b border-slate-100 pb-4"><h3 className="font-bold text-lg">{trip.name || '本次旅遊'}</h3><p className="text-slate-500 text-xs">建議轉帳路徑</p></div>
+                    <div className="bg-white p-6 rounded-2xl shadow-lg border border-slate-100 space-y-6">
+                        <div className="text-center border-b border-slate-100 pb-4"><h3 className="font-bold text-lg">{trip.name || '本次旅遊'}</h3><p className="text-slate-500 text-xs mt-1">全旅程結算 · 總支出 {formatMoney(expenseTotal)}</p></div>
                         <div className="space-y-3">{transactions.map((t, i) => (<div key={i} className="flex items-center justify-between bg-slate-50 p-3 rounded-lg border border-slate-100"><div className="flex items-center gap-2"><span className="font-bold text-slate-700">{getPersonNameHelper(t.from, trip.people)}</span><span className="text-slate-400 text-xs">給</span><span className="font-bold text-slate-700">{getPersonNameHelper(t.to, trip.people)}</span></div><span className="font-bold text-teal-600">{formatMoney(Math.round(t.amount))}</span></div>))}{transactions.length === 0 && <div className="text-center text-green-600 font-bold py-4">帳目已平！</div>}</div>
                         <div className="pt-4 border-t border-slate-100"><h4 className="text-sm font-bold text-slate-400 uppercase mb-3">個人收支 (含錢包合併)</h4><div className="space-y-2">{overview.map(p => { if (p.payerId && p.payerId !== p.id && p.balance === 0) return null; return (<div key={p.id} className="flex justify-between text-sm"><span>{p.name}</span><span className={p.balance >= 0 ? 'text-blue-600 font-bold' : 'text-red-500 font-bold'}>{p.balance > 0 ? `應收 ${formatMoney(Math.round(p.balance))}` : `應付 ${formatMoney(Math.round(Math.abs(p.balance)))}`}</span></div>); })}</div></div>
+                        <TravelExpenseDetails groups={expenseGroups} total={expenseTotal} />
                     </div>
-                    <button onClick={() => { copyToClipboard(settlementText); showMessage({ message: '結算文字已複製！' }); }} disabled={transactions.length === 0} className="w-full mt-6 bg-blue-50 disabled:opacity-40 text-blue-600 p-4 rounded-xl font-bold flex items-center justify-center gap-2"><i className="fa-solid fa-copy"></i> 複製結算文字</button>
-                    <button onClick={handleDownload} className="w-full mt-4 bg-slate-800 text-white p-4 rounded-xl font-bold flex items-center justify-center gap-2"><i className="fa-solid fa-download"></i> 下載結算圖</button>
+                    <button onClick={() => { copyToClipboard(settlementText); showMessage({ message: '結算文字已複製！' }); }} disabled={expenseCount === 0 && transactions.length === 0} className="w-full mt-6 bg-blue-50 disabled:opacity-40 text-blue-600 p-4 rounded-xl font-bold flex items-center justify-center gap-2"><i className="fa-solid fa-copy"></i> 複製結算文字</button>
                 </div>
             );
         };
@@ -2401,6 +2710,39 @@
                 debounceTimer.current = setTimeout(flushPendingProjectUpdate, 800);
             };
 
+
+            const importDiningToTravel = async (request) => {
+                const sourceId=currentProjectId,currentUser=auth.currentUser;
+                if(!currentUser || activeProjectRef.current?.type!=='dining') throw new Error('請先開啟要匯入的聚餐。');
+                if(syncInFlightRef.current) throw new Error('聚餐正在同步，請稍候再按確認匯入。');
+                if(debounceTimer.current) clearTimeout(debounceTimer.current);
+                await flushPendingProjectUpdate();
+                if(syncInFlightRef.current || pendingProjectUpdateRef.current?.operations?.length) throw new Error('聚餐尚未同步完成，請確認網路後再試。');
+                const expenseId='dining-'+createInviteToken(),importedAt=new Date().toISOString();
+                const result=await runTransaction(db,async transaction=>{
+                    const sourceRef=projectRefFor(sourceId),targetRef=projectRefFor(request.targetProjectId);
+                    const sourceSnap=await transaction.get(sourceRef),targetSnap=await transaction.get(targetRef);
+                    if(!sourceSnap.exists() || !targetSnap.exists()) throw new Error('找不到聚餐或旅遊專案，請重新開啟確認。');
+                    const source=sourceSnap.data(),target=targetSnap.data();
+                    if(source.type!=='dining' || target.type!=='travel') throw new Error('請選擇有效的旅遊專案。');
+                    const api=window.SplitEasyDiningImport;
+                    if(api.fingerprint(source.data)!==request.sourceFingerprint || api.targetFingerprint(target.data)!==request.targetFingerprint) throw new Error('聚餐內容或旅遊成員已變更，請關閉視窗後重新核對。');
+                    const calculation=calculateDiningResult(source.data);
+                    const expense=api.build(source.data,target.data,{...request,sourceProjectId:sourceId,expenseId,importedAt},calculation,getDiningExpenseRows(source.data,calculation));
+                    const targetData={...target.data,expenses:[...(target.data.expenses || []),expense]};
+                    const sourceData={...source.data,travelImport:{targetProjectId:request.targetProjectId,targetProjectName:target.data.name || target.name || '未命名旅遊',expenseId,importedAt}};
+                    const updatedSource={...source,data:sourceData,updatedAt:importedAt,lastUpdatedBy:currentUser.uid};
+                    const updatedTarget={...target,data:targetData,updatedAt:importedAt,lastUpdatedBy:currentUser.uid};
+                    transaction.set(targetRef,updatedTarget);transaction.set(sourceRef,updatedSource);
+                    return {source:{id:sourceId,...updatedSource},target:{id:request.targetProjectId,...updatedTarget}};
+                });
+                setProjects(previous=>previous.map(p=>p.id===sourceId?{...p,...result.source}:p.id===request.targetProjectId?{...p,...result.target}:p));
+                if(activeProjectRef.current?.id===sourceId){
+                    const updated={...activeProjectRef.current,...result.source};
+                    activeProjectRef.current=updated;setActiveProjectData(updated);
+                }
+                showMessage({title:'匯入完成',message:'已新增一筆聚餐支出，請至旅遊結算查看。這餐改由旅遊統一結算。'});
+            };
             const handleShareProject = async () => {
                 if (!user || !currentProjectId || !activeProjectData) return false;
                 if (activeProjectData.ownerId !== user.uid) {
@@ -2474,7 +2816,7 @@
                         {view === 'createProject' && <CreateProjectScreen onCancel={() => setView('projectList')} onCreate={createProject} showMessage={showMessage} />}
                         {view === 'activeProject' && !activeProjectData && <div className="py-20 text-center text-slate-400"><i className="fa-solid fa-spinner fa-spin text-2xl"></i><p className="mt-3 text-sm">正在載入共編專案…</p></div>}
                         {view === 'activeProject' && activeProjectData?.type === 'travel' && <TravelMode projectData={activeProjectData.data} onUpdate={updateCurrentData} showMessage={showMessage} />}
-                        {view === 'activeProject' && activeProjectData?.type === 'dining' && <DiningMode projectData={activeProjectData.data} onUpdate={updateCurrentData} showMessage={showMessage} />}
+                        {view === 'activeProject' && activeProjectData?.type === 'dining' && <DiningMode projectData={activeProjectData.data} onUpdate={updateCurrentData} showMessage={showMessage} sourceProjectId={currentProjectId} travelProjects={projects.filter(p=>p.type==='travel' && !p.accessPending && p.data)} onImportToTravel={importDiningToTravel} />}
                         <div className="py-5 text-center"><VersionBadge /></div>
                     </main>
                 </div>
