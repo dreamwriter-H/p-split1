@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Split Easy - 雲端共編出遊分帳器</title>
+    <title>A.A 2GETHER - 聚餐旅遊共同分帳</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
@@ -21,6 +21,55 @@
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
         body { -webkit-tap-highlight-color: transparent; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
         .touch-action-none { touch-action: none; }
+        :root { --brand-blue: #133dd5; --brand-paper: #f5f4f7; --brand-yellow: #ffea32; }
+        .intro-surface { background: var(--brand-paper); color: #202637; }
+        .brand-stage {
+            position: relative; width: 100vw; max-width: calc(100vh * 390 / 844);
+            width: min(100vw, calc(100svh * 390 / 844));
+            aspect-ratio: 390 / 844; margin: auto; container-type: inline-size;
+        }
+        .brand-scene { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+        .brand-logo { display: block; width: 100%; height: auto; aspect-ratio: 800 / 511; }
+        .brand-logo-wrap { position: absolute; left: 4.5%; top: 5.8%; width: 45.5%; margin: 0; }
+        .brand-tagline {
+            position: absolute; left: 5%; top: 20.2%; margin: 0; width: 75.8%;
+            min-height: 4.8%; padding: .23em .4em; border-radius: 999px;
+            background: var(--brand-yellow); color: var(--brand-blue);
+            font-size: min(6vw, 2.77vh); font-size: 6cqw; font-weight: 900; line-height: 1.2; letter-spacing: -.035em;
+            text-align: center; white-space: nowrap;
+        }
+        .brand-descriptor {
+            position: absolute; left: 8%; top: 25.8%; margin: 0;
+            font-size: min(4.9vw, 2.26vh); font-size: 4.9cqw; line-height: 1.4; letter-spacing: .08em;
+        }
+        .brand-loading {
+            position: absolute; bottom: 5.5%; left: 0; right: 0;
+            display: flex; justify-content: center; gap: 10px; gap: 2.4cqw;
+            font-size: min(2.8vw, 1.29vh); font-size: 2.8cqw;
+        }
+        .brand-loading i { animation: brand-pulse 1.3s ease-in-out infinite; }
+        .brand-loading i:nth-child(1) { color: #85d2fb; }
+        .brand-loading i:nth-child(2) { color: var(--brand-blue); animation-delay: .16s; }
+        .brand-loading i:nth-child(3) { color: #80dca8; animation-delay: .32s; }
+        .brand-scene-enter { animation: brand-enter .65s ease-out both; }
+        @keyframes brand-pulse { 0%, 100% { opacity: .45; transform: translateY(0); } 50% { opacity: 1; transform: translateY(-3px); } }
+        @keyframes brand-enter { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .brand-login-layout { width: min(100%, 980px); display: grid; grid-template-columns: 1fr; align-items: center; gap: 2rem; }
+        .brand-login-art { display: none; }
+        .brand-login-card { background: white; border: 1px solid #e8e8f0; border-radius: 28px; padding: 2rem; width: 100%; max-width: 400px; margin: auto; }
+        .brand-login-logo { width: 174px; margin: 0 auto 1rem; }
+        .brand-login-tagline { color: var(--brand-blue); font-weight: 800; font-size: 17px; text-align: center; }
+        .brand-login-button { background: var(--brand-blue); color: white; border-color: var(--brand-blue); font-size: 14px; white-space: nowrap; gap: .5rem; }
+        .brand-login-button:hover { background: #0f30b1; }
+        .brand-login-button:focus-visible { outline: 3px solid #ffcb35; outline-offset: 4px; }
+        .brand-header-logo { width: 76px; }
+        @media (min-width: 760px) {
+            .brand-login-layout { grid-template-columns: 1fr 1fr; }
+            .brand-login-art { display: block; width: 100%; max-height: 82svh; object-fit: contain; }
+        }
+        @media (prefers-reduced-motion: reduce) {
+            .brand-loading i, .brand-scene-enter { animation: none; }
+        }
     </style>
 </head>
 <body class="bg-slate-50 text-slate-800">
@@ -46,8 +95,8 @@
         const auth = getAuth(app);
         const db = getFirestore(app);
         const FIREBASE_APP_ID = 'spliteasy-2026';
-        const APP_VERSION = '2.4.1';
-        const BUILD_ID = 'v2.4.1-prod-r1';
+        const APP_VERSION = '2.4.2';
+        const BUILD_ID = 'v2.4.2-prod-r1';
         // v2.2 正式版使用全新的資料空間與首頁索引，不載入任何舊版帳本。
         const DATA_SPACE = 'spliteasy-v2-2-prod';
         const USER_INDEX_SPACE = 'spliteasy-v2-2-prod';
@@ -612,7 +661,7 @@
                             <div className="mt-4 rounded-xl bg-slate-50 p-3 text-left text-xs text-slate-500 break-words">{this.state.error?.message || '未知錯誤'}</div>
                             <button onClick={() => window.location.reload()} className="w-full mt-5 p-4 rounded-xl bg-teal-600 text-white font-black">重新載入</button>
                             <button onClick={() => window.location.assign(window.location.pathname)} className="w-full mt-3 p-3 rounded-xl bg-slate-100 text-slate-600 font-bold">回到首頁</button>
-                            <p className="mt-5 text-[11px] text-slate-400">Split Easy v{APP_VERSION} · {BUILD_ID}</p>
+                            <p className="mt-5 text-[11px] text-slate-400">A.A 2GETHER v{APP_VERSION} · {BUILD_ID}</p>
                         </div>
                     </div>
                 );
@@ -661,7 +710,7 @@
                 }
                 try {
                     await navigator.share({
-                        title: 'Split Easy 共編邀請',
+                        title: 'A.A 2GETHER 共編邀請',
                         text: `邀請你一起編輯「${invite.projectName}」`,
                         url: invite.url
                     });
@@ -889,38 +938,35 @@
         };
 
         const SplashScreen = ({ fadeOut }) => (
-            <div className={`fixed inset-0 bg-teal-500 flex flex-col items-center justify-center z-50 transition-opacity duration-500 ${fadeOut ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
-                <div className="bg-white p-6 rounded-3xl shadow-2xl transform scale-110 mb-8 animate-bounce">
-                    <i className="fa-solid fa-calculator text-6xl text-teal-600"></i>
-                </div>
-                <h1 className="text-3xl font-black text-white tracking-wider mb-2">Split Easy</h1>
-                <p className="text-teal-100 text-lg font-medium">P人也懂用的「出遊分帳器」</p>
-                <p className="text-teal-200 text-sm font-bold mt-1 tracking-widest">(專屬邀請共編版)</p>
-                <div className="mt-8 flex gap-2">
-                    <div className="w-2 h-2 bg-white rounded-full animate-ping"></div>
-                    <div className="w-2 h-2 bg-white rounded-full animate-ping delay-75"></div>
-                    <div className="w-2 h-2 bg-white rounded-full animate-ping delay-150"></div>
+            <div className={`intro-surface fixed inset-0 z-50 flex items-center justify-center overflow-y-auto transition-opacity duration-500 ${fadeOut ? 'opacity-0 pointer-events-none' : 'opacity-100'}`} role="status" aria-label="正在載入 A.A 2GETHER">
+                <div className="brand-stage">
+                    <img className="brand-scene brand-scene-enter" src="./assets/brand/colorful-cards-scene.webp" alt="" fetchPriority="high" />
+                    <h1 className="brand-logo-wrap"><img className="brand-logo" src="./assets/brand/aa-2gether-logo.webp" alt="A.A 2GETHER" fetchPriority="high" /></h1>
+                    <p className="brand-tagline">數學不好，錢算得清楚就好</p>
+                    <p className="brand-descriptor">聚餐・旅遊・共同分帳</p>
+                    <div className="brand-loading" aria-hidden="true"><i className="fa-solid fa-circle"></i><i className="fa-solid fa-circle"></i><i className="fa-solid fa-circle"></i></div>
                 </div>
             </div>
         );
 
         const LoginScreen = ({ onLogin, isLoggingIn, error, hasInvite }) => (
-            <div className="min-h-screen bg-gradient-to-b from-teal-500 to-teal-700 px-6 py-10 flex items-center justify-center">
-                <div className="w-full max-w-sm bg-white rounded-3xl shadow-2xl p-7 text-center">
-                    <div className="w-20 h-20 mx-auto bg-teal-50 rounded-3xl flex items-center justify-center mb-5">
-                        <i className="fa-solid fa-calculator text-4xl text-teal-600"></i>
-                    </div>
-                    <h1 className="text-3xl font-black text-slate-800">Split Easy</h1>
+            <div className="intro-surface min-h-screen px-6 py-10 flex items-center justify-center">
+                <div className="brand-login-layout">
+                <img src="./assets/brand/colorful-cards-scene.webp" alt="" className="brand-login-art" />
+                <div className="brand-login-card text-center">
+                    <h1 className="brand-login-logo"><img src="./assets/brand/aa-2gether-logo.webp" className="brand-logo" alt="A.A 2GETHER" /></h1>
+                    <p className="brand-login-tagline">數學不好，錢算得清楚就好</p>
                     <p className="text-slate-500 mt-2">登入後，只會看到你建立或朋友分享給你的記帳專案。</p>
                     {hasInvite && <div className="mt-4 p-3 bg-amber-50 text-amber-700 rounded-xl text-sm font-bold"><i className="fa-solid fa-envelope-open-text mr-2"></i>登入後就會加入朋友的共編專案</div>}
                     {error && <div className="mt-4 p-3 bg-red-50 text-red-600 rounded-xl text-sm text-left">{error}</div>}
-                    <button onClick={onLogin} disabled={isLoggingIn} className="w-full mt-6 p-4 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 shadow-sm font-bold text-slate-700 flex items-center justify-center gap-3 disabled:opacity-60">
-                        {isLoggingIn ? <i className="fa-solid fa-spinner fa-spin text-teal-600"></i> : <i className="fa-brands fa-google text-red-500"></i>}
+                    <button onClick={onLogin} disabled={isLoggingIn} className="w-full mt-6 p-4 rounded-xl border brand-login-button font-bold flex items-center justify-center gap-3 disabled:opacity-60">
+                        {isLoggingIn ? <i className="fa-solid fa-spinner fa-spin text-teal-600"></i> : <i className="fa-brands fa-google"></i>}
                         {isLoggingIn ? '正在開啟 Google…' : '使用 Google 帳號登入'}
                     </button>
-                    <p className="mt-3 text-xs text-teal-700 bg-teal-50 rounded-xl p-3"><i className="fa-solid fa-window-restore mr-2"></i>將開啟 Google 安全登入視窗；若視窗未出現，請改用外部 Chrome／Safari。</p>
+                    <p className="mt-3 text-xs text-blue-800 bg-blue-50 rounded-xl p-3"><i className="fa-solid fa-window-restore mr-2"></i>將開啟 Google 安全登入視窗；若視窗未出現，請改用外部 Chrome／Safari。</p>
                     <p className="mt-5 text-xs text-slate-400 leading-relaxed">Google 登入只用來辨認「哪些專案屬於你」。我們不會取得你的 Google 密碼。</p>
                     <div className="mt-3"><VersionBadge /></div>
+                </div>
                 </div>
             </div>
         );
@@ -2770,7 +2816,7 @@
             const handleSignOut = () => {
                 setDialog({
                     type: 'confirm',
-                    title: '登出 Split Easy',
+                    title: '登出 A.A 2GETHER',
                     message: '專案仍會安全保存在雲端，下次登入同一個 Google 帳號即可找回。',
                     confirmText: '確認登出',
                     onConfirm: () => signOut(auth).catch(error => console.error('Sign out error:', error))
@@ -2789,7 +2835,7 @@
                         {view === 'activeProject' ? (
                             <button onClick={() => { setShowCollaborationManager(false); setView('projectList'); setCurrentProjectId(null); setActiveProjectData(null); }} className="flex items-center gap-1 text-slate-500 font-bold"><i className="fa-solid fa-arrow-left"></i> 首頁</button>
                         ) : (
-                            <div className="flex items-center gap-2 text-teal-600 font-bold text-lg"><i className="fa-solid fa-calculator"></i> Split Easy</div>
+                            <div className="brand-header-logo"><img className="brand-logo" src="./assets/brand/aa-2gether-logo.webp" alt="A.A 2GETHER" /></div>
                         )}
 
                         {view === 'activeProject' && activeProjectData ? (
