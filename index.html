@@ -14,6 +14,7 @@
     <script src="./invoice-qr-parser.js?v=2.2.0"></script>
     <script src="./receipt-ocr.js?v=2.2.0"></script>
     <script src="./receipt-item-parser.js?v=2.4.0-prod-r1"></script>
+    <script src="./entry-recycle-bin.js?v=1"></script>
     <script src="./dining-trip-import.js?v=2.4.1-prod-r1"></script>
 
     <style>
@@ -46,8 +47,8 @@
         const auth = getAuth(app);
         const db = getFirestore(app);
         const FIREBASE_APP_ID = 'spliteasy-2026';
-        const APP_VERSION = '2.4.1';
-        const BUILD_ID = 'v2.4.1-prod-r1';
+        const APP_VERSION = '2.4.2-dev';
+        const BUILD_ID = 'v2.4.2-recycle-draft1';
         // v2.2 正式版使用全新的資料空間與首頁索引，不載入任何舊版帳本。
         const DATA_SPACE = 'spliteasy-v2-2-prod';
         const USER_INDEX_SPACE = 'spliteasy-v2-2-prod';
@@ -194,7 +195,9 @@
                     if (index >= 0) entities[index] = { ...entities[index], ...cloneDataValue(operation.value) };
                     else entities.push(cloneDataValue(operation.value));
                 } else if (operation.type === 'entity-field') {
-                    const entity = index >= 0 ? { ...entities[index] } : { id: operation.id };
+                    // A delayed edit must not resurrect a record deleted by another collaborator.
+                    if (index < 0) return;
+                    const entity = { ...entities[index] };
                     if (operation.remove) delete entity[operation.field];
                     else entity[operation.field] = cloneDataValue(operation.value);
                     if (index >= 0) entities[index] = entity;
@@ -643,6 +646,42 @@
                     </div>
                 </div>
             );
+        };
+
+        const RecycleBinModal = ({ entries, busy, onClose, onRestore }) => {
+            const closeRef = useRef(null);
+            const modalRef = useRef(null);
+            useEffect(() => {
+                const previous = document.activeElement;
+                closeRef.current?.focus();
+                return () => { if (previous?.isConnected) previous.focus(); };
+            }, []);
+            useEffect(() => {
+                // Restoring removes the focused row; keep keyboard navigation in the dialog.
+                if (!modalRef.current?.contains(document.activeElement)) closeRef.current?.focus();
+            }, [entries, busy]);
+            const handleKeyDown = event => {
+                if (event.key === 'Escape' && !busy) { event.stopPropagation(); onClose(); }
+                if (event.key !== 'Tab') return;
+                const buttons = [...modalRef.current.querySelectorAll('button:not(:disabled)')];
+                if (!buttons.length) { event.preventDefault(); return; }
+                const first = buttons[0], last = buttons[buttons.length - 1];
+                if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+                else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+            };
+            return <div className="fixed inset-0 bg-black/60 z-[9000] flex items-center justify-center p-4" onKeyDown={handleKeyDown}>
+                <section ref={modalRef} role="dialog" aria-modal="true" aria-labelledby="recycle-bin-title" className="bg-white rounded-3xl p-5 w-full max-w-md max-h-[85vh] overflow-y-auto">
+                    <div className="flex items-center justify-between gap-3"><h2 id="recycle-bin-title" className="font-bold text-lg">回收桶（{entries.length}／50）</h2><button ref={closeRef} disabled={busy} onClick={onClose} className="p-2 font-bold text-slate-500">關閉</button></div>
+                    <p className="text-xs text-slate-500 leading-relaxed mt-2 mb-4">共編成員都能還原。紀錄不會自動清除，目前最多保留 50 筆；整個專案永久刪除時，回收桶也會一併刪除。</p>
+                    {!entries.length && <p className="py-8 text-center text-sm text-slate-400">目前沒有刪除的紀錄</p>}
+                    {[...entries].reverse().map(entry => <article key={entry.id} className="border rounded-xl p-3 mb-3">
+                        <div className="flex justify-between gap-3"><h3 className="font-bold text-sm break-words">{entry.item?.desc || entry.item?.name || '未命名品項'}</h3><span className="shrink-0 font-bold text-sm">{formatMoney(entry.item?.amount)}</span></div>
+                        {entry.collection === 'expenses' && <p className="text-xs text-slate-500 mt-1">第 {Math.max(1, parseInt(entry.item?.day, 10) || 1)} 天{entry.item?.diningImport ? '・聚餐匯入' : ''}</p>}
+                        <p className="text-xs text-slate-500 mt-2 break-words">刪除者：{entry.deletedByName || '共編成員'}<br />刪除時間：{new Date(entry.deletedAt).toLocaleString('zh-TW')}</p>
+                        <button disabled={busy} onClick={() => onRestore(entry.id)} className="mt-3 w-full rounded-lg bg-teal-50 text-teal-700 font-bold py-2 text-sm disabled:opacity-50" aria-label={`還原${entry.item?.desc || entry.item?.name || '未命名品項'}`}>還原紀錄</button>
+                    </article>)}
+                </section>
+            </div>;
         };
 
         const ShareInviteModal = ({ invite, onClose }) => {
@@ -1582,7 +1621,7 @@
             );
         };
 
-        const DiningMode = ({ projectData, onUpdate, showMessage, initialStep = 1, sourceProjectId, travelProjects = [], onImportToTravel }) => {
+        const DiningMode = ({ projectData, onUpdate, showMessage, onRequestDelete, initialStep = 1, sourceProjectId, travelProjects = [], onImportToTravel }) => {
             const [step, setStep] = useState(initialStep);
             const [showReceiptItems, setShowReceiptItems] = useState(false);
             const [showInvoiceScanner, setShowInvoiceScanner] = useState(false);
@@ -1646,7 +1685,10 @@
             const selectMixedMode = () => setData(prev => ({ ...prev, splitMode: 'mixed', diningItems: prev.diningItems?.length ? prev.diningItems : [createDiningItem(prev.people)] }));
             const addDiningItem = () => setData(prev => ({ ...prev, diningItems: [...(prev.diningItems || []), createDiningItem(prev.people)] }));
             const updateDiningItem = (itemId, patch) => setData(prev => ({ ...prev, diningItems: (prev.diningItems || []).map(item => item.id === itemId ? { ...item, ...patch } : item) }));
-            const deleteDiningItem = (itemId) => setData(prev => ({ ...prev, diningItems: (prev.diningItems || []).filter(item => item.id !== itemId) }));
+            const deleteDiningItem = itemId => {
+                const item = (data.diningItems || []).find(item => item.id === itemId);
+                if (item) onRequestDelete(item);
+            };
             const toggleItemParticipant = (item, personId) => {
                 const participantIds = (item.participantIds || []).includes(personId)
                     ? item.participantIds.filter(id => id !== personId)
@@ -1876,7 +1918,7 @@
             );
         };
 
-        const TravelMode = ({ projectData, onUpdate, showMessage, initialTab = 'setup' }) => {
+        const TravelMode = ({ projectData, onUpdate, showMessage, onRequestDelete, initialTab = 'setup' }) => {
             const normalizeTravelData = (source) => {
                 const expenses = (source?.expenses || []).map(expense => ({
                     ...expense,
@@ -1970,7 +2012,10 @@
                 setTrip(prev => ({ ...prev, expenses: prev.expenses.map(expense => expense.id === updated.id ? { ...updated, day: expenseDay } : expense) }));
                 setActiveDay(expenseDay);
             };
-            const deleteExpense = (id) => setTrip(prev => ({ ...prev, expenses: prev.expenses.filter(e => e.id !== id) }));
+            const deleteExpense = id => {
+                const item = trip.expenses.find(expense => expense.id === id);
+                if (item) onRequestDelete(item);
+            };
             const handleEditClick = (expense) => {
                 if (expense.diningImport) { setImportedExpense(expense); return; }
                 setReceiptDraft(null);
@@ -2181,6 +2226,10 @@
             const [dialog, setDialog] = useState(null);
             const [shareInvite, setShareInvite] = useState(null);
             const [showCollaborationManager, setShowCollaborationManager] = useState(false);
+            const [showRecycleBin, setShowRecycleBin] = useState(false);
+            const [recycleBusy, setRecycleBusy] = useState(false);
+            const recycleBusyRef = useRef(false);
+            useEffect(() => { setShowRecycleBin(false); }, [currentProjectId]);
             const [projectIndexWarning, setProjectIndexWarning] = useState('');
             const [projectListRetryRevision, setProjectListRetryRevision] = useState(0);
             const [activeSyncRevision, setActiveSyncRevision] = useState(0);
@@ -2711,6 +2760,56 @@
             };
 
 
+            // Serialize with this client's pending edits, then operate on the transaction's latest data.
+            const changeRecycleBin = async (projectId, action, itemOrToken) => {
+                if (recycleBusyRef.current) return;
+                recycleBusyRef.current = true;
+                setRecycleBusy(true);
+                try {
+                    const currentUser = auth.currentUser;
+                    if (!currentUser || activeProjectRef.current?.id !== projectId) throw new Error('請重新開啟原專案後再試。');
+                    if (syncInFlightRef.current) throw new Error('帳目正在同步，請稍候再試。');
+                    if (debounceTimer.current) clearTimeout(debounceTimer.current);
+                    await flushPendingProjectUpdate();
+                    if (syncInFlightRef.current || pendingProjectUpdateRef.current?.operations?.length) throw new Error('帳目尚未同步完成，請確認網路後再試。');
+                    const token = action === 'delete' ? createInviteToken() : itemOrToken;
+                    const timestamp = new Date().toISOString();
+                    const committed = await runTransaction(db, async transaction => {
+                        const ref = projectRefFor(projectId), snapshot = await transaction.get(ref);
+                        if (!snapshot.exists()) throw new Error('找不到原專案，未執行此操作。');
+                        const project = snapshot.data();
+                        const data = action === 'delete'
+                            ? window.SplitEasyRecycleBin.moveToBin(project, itemOrToken, currentUser, token, timestamp)
+                            : window.SplitEasyRecycleBin.restore(project, token);
+                        const next = { ...project, data, updatedAt: timestamp, lastUpdatedBy: currentUser.uid };
+                        transaction.set(ref, next);
+                        return { ...next, id: snapshot.id };
+                    });
+                    const display = { ...committed, currentUserRole: committed.ownerId === currentUser.uid ? 'owner' : 'editor' };
+                    if (activeProjectRef.current?.id === projectId) {
+                        activeProjectRef.current = display;
+                        setActiveProjectData(display);
+                    }
+                    setProjects(previous => previous.map(project => project.id === projectId ? display : project));
+                    showMessage({ title: action === 'delete' ? '已移至回收桶' : '已還原紀錄', message: action === 'delete' ? '可從專案的「回收桶」還原。刪除不會更動其他專案的匯入副本。' : '紀錄已恢復至帳目，所有共編成員會同步看到結果。' });
+                } catch (error) {
+                    console.error('Recycle bin operation failed:', error);
+                    showMessage({ title: '操作未完成', message: error.message || '請確認網路與共編權限後重試。' });
+                } finally {
+                    recycleBusyRef.current = false;
+                    setRecycleBusy(false);
+                }
+            };
+
+            const requestEntryDelete = item => {
+                const projectId = currentProjectId;
+                setDialog({
+                    type: 'confirm', title: '移至回收桶', confirmText: '確認移至回收桶',
+                    message: `確定要刪除「${item.desc || item.name || '未命名品項'}」（${formatMoney(item.amount)}）嗎？\n\n所有共編成員的帳目都會同步移除，可從本專案回收桶還原。其他專案的匯入副本不受影響。`,
+                    onConfirm: () => changeRecycleBin(projectId, 'delete', cloneDataValue(item))
+                });
+            };
+
             const importDiningToTravel = async (request) => {
                 const sourceId=currentProjectId,currentUser=auth.currentUser;
                 if(!currentUser || activeProjectRef.current?.type!=='dining') throw new Error('請先開啟要匯入的聚餐。');
@@ -2783,6 +2882,8 @@
             return (
                 <div className="min-h-screen">
                     <DialogModal dialog={dialog} onClose={() => setDialog(null)} />
+                    {recycleBusy && <div role="status" aria-live="polite" className="fixed inset-0 z-[10000] bg-black/40 flex items-center justify-center"><p className="bg-white rounded-2xl p-6 font-bold">正在同步帳目，請稍候…</p></div>}
+                    {showRecycleBin && activeProjectData && <RecycleBinModal entries={activeProjectData.data?.recycleBin || []} busy={recycleBusy} onClose={() => setShowRecycleBin(false)} onRestore={token => changeRecycleBin(currentProjectId, 'restore', token)} />}
                     <ShareInviteModal invite={shareInvite} onClose={() => setShareInvite(null)} />
                     {showCollaborationManager && activeProjectData?.ownerId === user.uid && <CollaborationManagerModal project={activeProjectData} user={user} onClose={() => setShowCollaborationManager(false)} onCreateInvite={handleShareProject} requestConfirm={setDialog} showMessage={showMessage} />}
                     <header className="bg-white shadow-sm sticky top-0 z-10 px-4 py-3 flex items-center justify-between">
@@ -2794,6 +2895,7 @@
 
                         {view === 'activeProject' && activeProjectData ? (
                             <div className="flex items-center gap-2">
+                                <button onClick={() => setShowRecycleBin(true)} className="text-xs font-bold text-slate-600 bg-slate-100 rounded-full px-2 py-2" aria-label="開啟回收桶">回收桶</button>
                                 <h1 className="font-bold text-sm text-slate-800 truncate max-w-[105px]">{activeProjectData.name}</h1>
                                 {activeProjectData.ownerId === user.uid ? <button onClick={() => setShowCollaborationManager(true)} className="bg-teal-100 text-teal-700 px-3 py-1.5 rounded-full text-xs font-bold flex items-center gap-1 hover:bg-teal-200 transition"><i className="fa-solid fa-users-gear"></i> 共編管理</button> : <span className="bg-slate-100 text-slate-500 px-3 py-1.5 rounded-full text-xs font-bold">協作者</span>}
                             </div>
@@ -2815,8 +2917,8 @@
                         {view === 'projectList' && <ProjectList projects={projects} isLoading={projectsLoading} warning={projectIndexWarning} onSelect={(id) => { const selected = projects.find(project => project.id === id); if (selected?.accessPending) { setProjectsLoading(true); setProjectListRetryRevision(revision => revision + 1); setDialog({ type: 'alert', title: '正在重新確認', message: '這筆首頁索引仍保留。系統正在重新確認登入與專案權限，請稍後再點一次。' }); return; } setCurrentProjectId(id); setActiveProjectData(selected || null); setView('activeProject'); }} onCreate={() => setView('createProject')} onRemove={handleRemoveProject} />}
                         {view === 'createProject' && <CreateProjectScreen onCancel={() => setView('projectList')} onCreate={createProject} showMessage={showMessage} />}
                         {view === 'activeProject' && !activeProjectData && <div className="py-20 text-center text-slate-400"><i className="fa-solid fa-spinner fa-spin text-2xl"></i><p className="mt-3 text-sm">正在載入共編專案…</p></div>}
-                        {view === 'activeProject' && activeProjectData?.type === 'travel' && <TravelMode projectData={activeProjectData.data} onUpdate={updateCurrentData} showMessage={showMessage} />}
-                        {view === 'activeProject' && activeProjectData?.type === 'dining' && <DiningMode projectData={activeProjectData.data} onUpdate={updateCurrentData} showMessage={showMessage} sourceProjectId={currentProjectId} travelProjects={projects.filter(p=>p.type==='travel' && !p.accessPending && p.data)} onImportToTravel={importDiningToTravel} />}
+                        {view === 'activeProject' && activeProjectData?.type === 'travel' && <TravelMode projectData={activeProjectData.data} onUpdate={updateCurrentData} showMessage={showMessage} onRequestDelete={requestEntryDelete} />}
+                        {view === 'activeProject' && activeProjectData?.type === 'dining' && <DiningMode projectData={activeProjectData.data} onUpdate={updateCurrentData} showMessage={showMessage} onRequestDelete={requestEntryDelete} sourceProjectId={currentProjectId} travelProjects={projects.filter(p=>p.type==='travel' && !p.accessPending && p.data)} onImportToTravel={importDiningToTravel} />}
                         <div className="py-5 text-center"><VersionBadge /></div>
                     </main>
                 </div>
