@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>A.A 2GETHER - 聚餐旅遊共同分帳</title>
+    <link rel="stylesheet" href="./assets/brand/app-ui.css?v=2.5.0">
     <script src="https://cdn.tailwindcss.com"></script>
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
@@ -72,7 +73,7 @@
         }
     </style>
 </head>
-<body class="bg-slate-50 text-slate-800">
+<body class="aa-ui bg-slate-50 text-slate-800">
     <div id="root"></div>
 
     <script type="text/babel" data-type="module">
@@ -95,8 +96,8 @@
         const auth = getAuth(app);
         const db = getFirestore(app);
         const FIREBASE_APP_ID = 'spliteasy-2026';
-        const APP_VERSION = '2.4.2';
-        const BUILD_ID = 'v2.4.2-prod-r1';
+        const APP_VERSION = '2.5.0';
+        const BUILD_ID = 'v2.5.0-prod-r1';
         // v2.2 正式版使用全新的資料空間與首頁索引，不載入任何舊版帳本。
         const DATA_SPACE = 'spliteasy-v2-2-prod';
         const USER_INDEX_SPACE = 'spliteasy-v2-2-prod';
@@ -584,7 +585,7 @@
                 finally {busyRef.current=false;setBusy(false);}
             };
             return <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-3">
-                <section role="dialog" aria-modal="true" aria-label="匯入旅遊專案" className="bg-white rounded-2xl p-5 w-full max-w-md max-h-[92vh] overflow-y-auto space-y-4">
+                <section role="dialog" aria-modal="true" aria-label="匯入旅遊專案" className="aa-form-modal bg-white rounded-2xl p-5 w-full max-w-md max-h-[92vh] overflow-y-auto space-y-4">
                     <h3 className="text-xl font-bold">匯入旅遊專案</h3>
                     <p className="text-sm text-slate-600">{data.title || '本次聚餐'} · {formatMoney(calculation.finalTotal)}，會新增為一筆支出。</p>
                     {!travelProjects.length ? <p className="text-sm text-orange-700">請先建立旅遊專案與成員，再回來匯入。</p> : <>
@@ -603,7 +604,7 @@
         };
         const ImportedDiningEditModal = ({ expense, dayCount, onSave, onClose }) => {
             const [desc,setDesc]=useState(expense.desc),[day,setDay]=useState(expense.day);
-            return <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-3"><section role="dialog" aria-modal="true" aria-label="聚餐匯入明細" className="bg-white rounded-2xl p-5 w-full max-w-md max-h-[92vh] overflow-y-auto space-y-4">
+            return <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-3"><section role="dialog" aria-modal="true" aria-label="聚餐匯入明細" className="aa-form-modal bg-white rounded-2xl p-5 w-full max-w-md max-h-[92vh] overflow-y-auto space-y-4">
             <h3 className="font-bold text-xl">聚餐匯入明細</h3>
             <label className="block text-sm font-bold">費用名稱<input aria-label="費用名稱" value={desc} onChange={e=>setDesc(e.target.value)} className="w-full p-3 border rounded-xl mt-2"/></label>
             <label className="block text-sm font-bold">旅遊天數<select aria-label="旅遊天數" value={day} onChange={e=>setDay(Number(e.target.value))} className="w-full p-3 border rounded-xl mt-2">{Array.from({length:dayCount},(_,i)=><option key={i+1} value={i+1}>第 {i+1} 天</option>)}</select></label>
@@ -674,7 +675,7 @@
             if (!dialog) return null;
             return (
                 <div className="fixed inset-0 bg-black/60 z-[9999] flex items-center justify-center p-4 animate-fade-in">
-                    <div className="bg-white rounded-3xl p-6 w-full max-w-sm shadow-2xl transform scale-100 transition-transform">
+                    <div className="aa-dialog-modal bg-white rounded-3xl p-6 w-full max-w-sm shadow-2xl transform scale-100 transition-transform">
                         <div className="flex items-center gap-3 mb-4">
                             {dialog.type === 'confirm' ? 
                                 <div className="w-10 h-10 rounded-full bg-orange-100 flex items-center justify-center text-orange-500"><i className="fa-solid fa-circle-question text-xl"></i></div> :
@@ -685,7 +686,7 @@
                         <p className="text-slate-600 text-sm mb-6 whitespace-pre-wrap">{dialog.message}</p>
                         <div className="flex gap-3 justify-end">
                             {dialog.type === 'confirm' && <button onClick={onClose} className="px-5 py-2.5 rounded-xl bg-slate-100 text-slate-600 font-bold hover:bg-slate-200">取消</button>}
-                            <button onClick={() => { if(dialog.onConfirm) dialog.onConfirm(); onClose(); }} className="px-5 py-2.5 rounded-xl bg-slate-800 text-white font-bold shadow-md hover:bg-slate-900">
+                            <button onClick={() => { if(dialog.onConfirm) dialog.onConfirm(); onClose(); }} className={`px-5 py-2.5 rounded-xl bg-slate-800 text-white font-bold shadow-md hover:bg-slate-900 ${/刪除|移除|撤銷/.test(dialog.title || '') ? 'aa-danger' : 'aa-primary'}`}>
                                 {dialog.confirmText || '確定'}
                             </button>
                         </div>
@@ -721,7 +722,7 @@
 
             return (
                 <div className="fixed inset-0 bg-black/60 z-[9999] flex items-center justify-center p-4 animate-fade-in">
-                    <div className="bg-white rounded-3xl p-6 w-full max-w-sm shadow-2xl">
+                    <div className="aa-share-modal bg-white rounded-3xl p-6 w-full max-w-sm shadow-2xl">
                         <div className="flex items-center gap-3 mb-3">
                             <div className="w-10 h-10 rounded-full bg-teal-100 flex items-center justify-center text-teal-600"><i className="fa-solid fa-user-group"></i></div>
                             <div><h3 className="font-bold text-lg">共編連結已建立</h3><p className="text-xs text-slate-400">只有收到這個網址的人能申請加入</p></div>
@@ -836,7 +837,7 @@
 
             return (
                 <div className="fixed inset-0 bg-black/60 z-[9997] flex items-end sm:items-center justify-center sm:p-4 animate-fade-in">
-                    <div className="bg-white rounded-t-3xl sm:rounded-3xl w-full max-w-md max-h-[92vh] overflow-y-auto shadow-2xl">
+                    <div className="aa-collaboration-modal bg-white rounded-t-3xl sm:rounded-3xl w-full max-w-md max-h-[92vh] overflow-y-auto shadow-2xl">
                         <div className="sticky top-0 bg-white z-10 px-5 py-4 border-b border-slate-100 flex items-center justify-between">
                             <div><h3 className="font-black text-lg">共編成員與邀請</h3><p className="text-xs text-slate-400">只有專案擁有者可以管理</p></div>
                             <button onClick={onClose} className="w-9 h-9 rounded-full bg-slate-100 text-slate-500"><i className="fa-solid fa-xmark"></i></button>
@@ -899,7 +900,7 @@
             }));
 
             return (
-                <div className="p-6 h-full flex flex-col animate-fade-in">
+                <div className="aa-wallets p-6 h-full flex flex-col animate-fade-in">
                     <h2 className="text-2xl font-bold mb-2">誰幫誰付錢？</h2>
                     <p className="text-slate-500 text-sm mb-6">點選 A 頭像，再點選 B 頭像，即可將 A 併入 B 的錢包（共同結算）。</p>
 
@@ -972,7 +973,7 @@
         );
 
         const ProjectList = ({ projects, onSelect, onCreate, onRemove, isLoading, warning }) => (
-            <div className="p-6 animate-fade-in pb-24">
+            <div className="aa-home p-6 animate-fade-in pb-24">
                 <div className="mb-6">
                     <div>
                         <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2">我的記帳本 <span className="relative flex h-3 w-3"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-teal-400 opacity-75"></span><span className="relative inline-flex rounded-full h-3 w-3 bg-teal-500"></span></span></h2>
@@ -991,7 +992,7 @@
                 ) : (
                     <div className="space-y-4">
                         {projects.map(p => (
-                            <div key={p.id} onClick={() => onSelect(p.id)} className={`bg-white p-5 rounded-2xl shadow-sm border transition-all cursor-pointer active:scale-98 group relative ${p.accessPending ? 'border-amber-200 hover:border-amber-300' : 'border-slate-100 hover:border-teal-300'}`}>
+                            <div key={p.id} data-kind={p.type} role="button" tabIndex={0} onKeyDown={event => { if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); onSelect(p.id); } }} onClick={() => onSelect(p.id)} className={`aa-project-card bg-white p-5 rounded-2xl shadow-sm border transition-all cursor-pointer active:scale-98 group relative ${p.accessPending ? 'border-amber-200 hover:border-amber-300' : 'border-slate-100 hover:border-teal-300'}`}>
                                 <div className="flex justify-between items-start">
                                     <div className="flex gap-4">
                                         <div className={`p-3 rounded-full h-fit w-12 h-12 flex items-center justify-center ${p.type === 'travel' ? 'bg-blue-100 text-blue-600' : 'bg-orange-100 text-orange-600'}`}><i className={`fa-solid ${p.type === 'travel' ? 'fa-map' : 'fa-mug-hot'} text-xl`}></i></div>
@@ -1019,19 +1020,19 @@
             const [type, setType] = useState(null);
             const handleCreate = () => { if (!type) return showMessage({ message: "請選擇一種類型" }); onCreate(type); };
             return (
-                <div className="p-6 h-full flex flex-col animate-slide-up">
+                <div className="aa-create p-6 h-full flex flex-col animate-slide-up">
                     <h2 className="text-2xl font-bold mb-2">開始新的記帳</h2>
                     <p className="text-sm text-slate-500 mb-6">先選擇用途，下一步再設定這次活動的名稱。</p>
                     <div className="flex-1 space-y-6">
                         <div>
                             <label className="block text-sm font-bold text-slate-500 mb-2">選擇記帳類型</label>
                             <div className="grid grid-cols-1 gap-4">
-                                <button onClick={() => setType('dining')} className={`p-4 rounded-2xl border-2 flex items-center gap-4 transition-all ${type === 'dining' ? 'border-orange-500 bg-orange-50 ring-2 ring-orange-200' : 'border-slate-100 bg-white hover:border-orange-200'}`}>
+                                <button data-kind="dining" aria-pressed={type === 'dining'} onClick={() => setType('dining')} className={`p-4 rounded-2xl border-2 flex items-center gap-4 transition-all ${type === 'dining' ? 'border-orange-500 bg-orange-50 ring-2 ring-orange-200' : 'border-slate-100 bg-white hover:border-orange-200'}`}>
                                     <div className="bg-orange-100 p-3 rounded-full text-orange-600 w-12 h-12 flex items-center justify-center"><i className="fa-solid fa-mug-hot text-xl"></i></div>
                                     <div className="text-left"><h3 className="font-bold text-slate-800">單次聚餐</h3><p className="text-xs text-slate-500">適合餐廳拆帳、服務費計算</p></div>
                                     {type === 'dining' && <i className="fa-solid fa-circle-check ml-auto text-orange-500"></i>}
                                 </button>
-                                <button onClick={() => setType('travel')} className={`p-4 rounded-2xl border-2 flex items-center gap-4 transition-all ${type === 'travel' ? 'border-blue-500 bg-blue-50 ring-2 ring-blue-200' : 'border-slate-100 bg-white hover:border-blue-200'}`}>
+                                <button data-kind="travel" aria-pressed={type === 'travel'} onClick={() => setType('travel')} className={`p-4 rounded-2xl border-2 flex items-center gap-4 transition-all ${type === 'travel' ? 'border-blue-500 bg-blue-50 ring-2 ring-blue-200' : 'border-slate-100 bg-white hover:border-blue-200'}`}>
                                     <div className="bg-blue-100 p-3 rounded-full text-blue-600 w-12 h-12 flex items-center justify-center"><i className="fa-solid fa-map text-xl"></i></div>
                                     <div className="text-left"><h3 className="font-bold text-slate-800">多日旅遊</h3><p className="text-xs text-slate-500">適合連續記帳、複雜代墊</p></div>
                                     {type === 'travel' && <i className="fa-solid fa-circle-check ml-auto text-blue-500"></i>}
@@ -1134,7 +1135,7 @@
                 onClose();
             };
             return <div role="dialog" aria-modal="true" aria-labelledby="receipt-items-title" className="fixed inset-0 bg-black/60 z-[9998] flex items-end sm:items-center justify-center sm:p-4">
-                <div className="bg-white rounded-t-3xl sm:rounded-3xl w-full max-w-md max-h-[92vh] overflow-y-auto">
+                <div className="aa-receipt-modal bg-white rounded-t-3xl sm:rounded-3xl w-full max-w-md max-h-[92vh] overflow-y-auto">
                     <div className="sticky top-0 bg-white z-10 border-b border-slate-100 px-5 py-4 flex items-center justify-between gap-3">
                         <h3 id="receipt-items-title" className="font-bold text-lg">拍帳單批次新增</h3>
                         <button type="button" onClick={onClose} aria-label="關閉帳單預覽" className="w-9 h-9 rounded-full bg-slate-100 shrink-0">×</button>
@@ -1283,7 +1284,7 @@
 
             return (
                 <div className="fixed inset-0 bg-black/60 z-[9998] flex items-end sm:items-center justify-center sm:p-4 animate-fade-in">
-                    <div className="bg-white rounded-t-3xl sm:rounded-3xl w-full max-w-md max-h-[92vh] overflow-y-auto shadow-2xl">
+                    <div className="aa-receipt-modal bg-white rounded-t-3xl sm:rounded-3xl w-full max-w-md max-h-[92vh] overflow-y-auto shadow-2xl">
                         <div className="sticky top-0 bg-white z-10 px-5 py-4 border-b border-slate-100 flex items-center justify-between">
                             <div><h3 className="font-black text-lg">掃描臺灣電子發票</h3><p className="text-xs text-slate-400">拍一張完整發票，自動尋找左右 QR</p></div>
                             <button onClick={onClose} className="w-9 h-9 rounded-full bg-slate-100 text-slate-500"><i className="fa-solid fa-xmark"></i></button>
@@ -1495,7 +1496,7 @@
 
             return (
                 <div className="fixed inset-0 bg-black/60 z-[9998] flex items-end sm:items-center justify-center sm:p-4 animate-fade-in">
-                    <div className="bg-white rounded-t-3xl sm:rounded-3xl w-full max-w-md max-h-[92vh] overflow-y-auto shadow-2xl">
+                    <div className="aa-receipt-modal bg-white rounded-t-3xl sm:rounded-3xl w-full max-w-md max-h-[92vh] overflow-y-auto shadow-2xl">
                         <div className="sticky top-0 bg-white z-10 px-5 py-4 border-b border-slate-100 flex items-center justify-between">
                             <div><h3 className="font-black text-lg">拍收據建立旅遊支出</h3><p className="text-xs text-slate-400">照片只在這台裝置處理，不會上傳</p></div>
                             <button onClick={onClose} className="w-9 h-9 rounded-full bg-slate-100 text-slate-500"><i className="fa-solid fa-xmark"></i></button>
@@ -1585,7 +1586,7 @@
                 setSelectedId(null);
             };
             return (
-                <section aria-label="共同錢包設定" className="mb-6 rounded-2xl border border-orange-200 bg-white overflow-hidden">
+                <section aria-label="共同錢包設定" className="aa-dining-wallets mb-6 rounded-2xl border border-orange-200 bg-white overflow-hidden">
                     <button type="button" onClick={onToggle} aria-expanded={expanded} aria-controls="dining-wallet-options" className="w-full p-4 flex items-center gap-3 text-left hover:bg-orange-50 transition">
                         <span className="w-10 h-10 shrink-0 rounded-xl bg-orange-100 text-orange-600 flex items-center justify-center"><i className="fa-solid fa-wallet" aria-hidden="true"></i></span>
                         <span className="flex-1 min-w-0"><span className="block font-bold text-slate-800">共同錢包 <span className="text-xs font-normal text-slate-400">選填</span></span><span className="block text-xs text-slate-500 mt-1">{sharedWallets.length ? `已設定 ${sharedWallets.length} 個共同錢包・共 ${wallets.length} 組結算` : '家人、情侶可由一人代表結算'}</span></span>
@@ -1759,8 +1760,8 @@
             const sharedWallets = calculation.wallets.filter(wallet => wallet.members.length > 1);
 
             return (
-                <div className="pb-20">
-                    <div className="flex gap-1 h-1 mb-6 px-6 pt-6">{[1, 2, 3, 4].map(s => <div key={s} className={`flex-1 rounded-full ${s <= step ? 'bg-orange-500' : 'bg-slate-200'}`} />)}</div>
+                <div className="aa-dining pb-20">
+                    <ol className="aa-dining-steps" aria-label="聚餐設定進度">{['基本資料', '成員', '帳單', '結算'].map((label, index) => <li key={label} data-complete={index + 1 <= step} aria-current={index + 1 === step ? 'step' : undefined}><span>{index + 1}</span><b>{label}</b></li>)}</ol>
                     {step === 1 && (
                         <div className="px-6 animate-fade-in">
                             <h2 className="text-2xl font-bold mb-6">這次聚餐是...</h2>
@@ -1820,7 +1821,7 @@
                                     {sharedWallets.map(wallet => <p key={wallet.id} className="mt-2 text-xs text-orange-800 break-words">{wallet.members.map(member => member.name).join('、')} → {wallet.name} 代表</p>)}
                                     {calculation.payerId !== calculation.payerWalletId && <p className="mt-2 text-xs text-orange-800 leading-relaxed">付款人與 {getPersonNameHelper(calculation.payerWalletId, data.people)} 共用錢包，對外收款統一由該代表結算。</p>}
                                 </div>
-                                <div className="rounded-2xl bg-gradient-to-br from-slate-800 to-slate-700 text-white p-5 shadow-lg"><p className="text-sm font-medium text-slate-300">預估應付總額</p><p className="text-4xl font-black mt-1 tracking-tight">{formatMoney(getBillPreview().total)}</p><div className="mt-4 pt-3 border-t border-white/20 flex items-center justify-between text-sm"><span className="text-slate-300">套餐合計 <span className="text-white font-bold">{formatMoney(getBillPreview().subtotal)}</span></span><span className="text-slate-300">服務費 <span className="text-white font-bold">{formatMoney(getBillPreview().serviceCharge)}</span></span></div></div>
+                                <div className="aa-bill-summary aa-total-summary rounded-2xl bg-gradient-to-br from-slate-800 to-slate-700 text-white p-5 shadow-lg"><p className="text-sm font-medium text-slate-300">預估應付總額</p><p className="text-4xl font-black mt-1 tracking-tight">{formatMoney(getBillPreview().total)}</p><div className="mt-4 pt-3 border-t border-white/20 flex items-center justify-between text-sm"><span className="text-slate-300">套餐合計 <span className="text-white font-bold">{formatMoney(getBillPreview().subtotal)}</span></span><span className="text-slate-300">服務費 <span className="text-white font-bold">{formatMoney(getBillPreview().serviceCharge)}</span></span></div></div>
                                 {data.splitMode === 'custom' && (
                                     <div className="space-y-3 pt-4 border-t border-slate-100">
                                         <div><p className="text-sm font-bold text-slate-700">逐人輸入套餐</p><p className="text-xs text-slate-500 mt-1">填寫每個人的餐點小計；百分比服務費會直接加到各自餐點，固定服務費則依餐點比例分攤。</p></div>
@@ -1886,11 +1887,11 @@
 
 
             return (
-                <div className="px-6 animate-fade-in pb-10">
+                <div className="aa-dining-result px-6 animate-fade-in pb-10">
                     <h2 className="text-2xl font-bold mb-4">計算結果</h2>
                     <div className="bg-white p-6 rounded-2xl shadow-xl border border-slate-100 mb-6 relative overflow-hidden">
                         <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-orange-400 to-red-500"></div>
-                        <div className="flex flex-wrap justify-between items-end gap-3 mb-6 pb-6 border-b border-dashed border-slate-200">
+                        <div className="aa-total-summary flex flex-wrap justify-between items-end gap-3 mb-6 pb-6 border-b border-dashed border-slate-200">
                             <div className="min-w-0 flex-1"><h3 className="text-xl font-bold text-slate-800 break-words">{data.title || '快樂聚餐'}</h3><p className="text-slate-500 text-sm">{data.date}</p></div>
                             <div className="text-right shrink-0"><p className="text-xs text-slate-400 uppercase">Total</p><p className="text-2xl font-black text-orange-600">{formatMoney(Math.round(finalTotal))}</p></div>
                         </div>
@@ -1900,12 +1901,12 @@
                         </div>
                         <h4 className="text-xs font-bold text-slate-400 mb-3">{hasSharedWallet ? '各錢包負擔・含個人明細' : '各人負擔'}</h4>
                         <div className="space-y-3">{wallets.map(wallet => (
-                            <div key={wallet.id} className={wallet.members.length > 1 ? 'rounded-xl border border-orange-100 overflow-hidden' : 'py-2'}>
+                            <div key={wallet.id} className={wallet.members.length > 1 ? 'aa-wallet-group rounded-xl border border-orange-100 overflow-hidden' : 'py-2'}>
                                 {wallet.members.length > 1 && <div className="bg-orange-50 px-3 py-3 flex justify-between items-start gap-3"><div className="min-w-0"><p className="text-sm font-bold text-orange-800 break-words"><i className="fa-solid fa-wallet mr-2" aria-hidden="true"></i>{wallet.name} 的錢包</p><p className="text-[11px] text-orange-600 mt-1">{wallet.members.length} 人合併結算</p></div><b className="text-orange-800 shrink-0">{formatMoney(wallet.amount)}</b></div>}
                                 <div className={wallet.members.length > 1 ? 'p-3 space-y-3' : 'space-y-3'}>{wallet.members.map(member => <div key={member.id} className="flex justify-between items-start gap-3"><span className="text-sm font-medium text-slate-700 min-w-0 break-words">{member.name}</span><div className="text-right min-w-0"><span className="block font-bold text-slate-800">{formatMoney(member.amount)}</span>{member.detail && <span className="block text-[10px] text-slate-400 max-w-[160px] break-words">{member.detail}</span>}</div></div>)}</div>
                             </div>
                         ))}</div>
-                        <div className="mt-6 pt-5 border-t border-dashed border-slate-200"><h4 className="text-xs font-bold text-slate-400 uppercase mb-3">建議轉帳</h4>{transfers.length > 0 ? <div className="space-y-2">{transfers.map((item, index) => <div key={index} className="flex justify-between items-start gap-3 rounded-lg bg-teal-50 px-3 py-3 text-sm"><span className="min-w-0 break-words"><b>{item.from}</b> 轉給 {item.to}</span><b className="text-teal-700 shrink-0">{formatMoney(item.amount)}</b></div>)}</div> : <p className="rounded-xl bg-teal-50 p-3 text-sm text-teal-700">無需轉帳{hasSharedWallet && wallets.length === 1 ? '，所有成員都在同一個錢包。' : '。'}</p>}{hasSharedWallet && <p className="text-[11px] text-slate-400 leading-relaxed mt-3">以上由錢包代表統一結算，同一錢包內不另列轉帳。</p>}</div>
+                        <div className="mt-6 pt-5 border-t border-dashed border-slate-200"><h4 className="text-xs font-bold text-slate-400 uppercase mb-3">建議轉帳</h4>{transfers.length > 0 ? <div className="space-y-2">{transfers.map((item, index) => <div key={index} className="aa-transfer-row flex justify-between items-start gap-3 rounded-lg bg-teal-50 px-3 py-3 text-sm"><span className="min-w-0 break-words"><b>{item.from}</b> 轉給 {item.to}</span><b className="text-teal-700 shrink-0">{formatMoney(item.amount)}</b></div>)}</div> : <p className="rounded-xl bg-teal-50 p-3 text-sm text-teal-700">無需轉帳{hasSharedWallet && wallets.length === 1 ? '，所有成員都在同一個錢包。' : '。'}</p>}{hasSharedWallet && <p className="text-[11px] text-slate-400 leading-relaxed mt-3">以上由錢包代表統一結算，同一錢包內不另列轉帳。</p>}</div>
                         <section aria-label="聚餐費用明細" className="mt-6 pt-5 border-t border-slate-100">
                             <h4 className="font-bold text-slate-800 mb-4">費用明細</h4>
                             <ExpenseRows rows={expenseRows} />
@@ -1913,7 +1914,7 @@
                             <div className="flex justify-between gap-3 border-t border-slate-100 mt-4 pt-4 font-bold"><span>本次合計</span><span className="shrink-0 text-orange-600">{formatMoney(finalTotal)}</span></div>
                         </section>
                     </div>
-                    <div className="mb-4"><button onClick={() => {copyToClipboard(resultText); showMessage({message: '明細已複製！'});}} className="w-full bg-blue-50 text-blue-600 p-4 rounded-xl font-bold flex items-center justify-center gap-2"><i className="fa-solid fa-copy"></i> 複製文字</button></div>
+                    <div className="mb-4"><button onClick={() => {copyToClipboard(resultText); showMessage({message: '明細已複製！'});}} className="aa-primary w-full bg-blue-50 text-blue-600 p-4 rounded-xl font-bold flex items-center justify-center gap-2"><i className="fa-solid fa-copy"></i> 複製文字</button></div>
                     {onImportToTravel && <div className="mb-4">{data.travelImport && <p className="text-xs text-teal-700 mb-3 leading-relaxed">上次匯入：{data.travelImport.targetProjectName}。請至旅遊確認紀錄並統一結算；修改本餐不會自動更新旅遊。</p>}<button onClick={()=>setShowTripImport(true)} className="w-full p-4 bg-teal-600 text-white rounded-xl font-bold">匯入旅遊專案</button></div>}
                     <button onClick={onBack} className="w-full bg-slate-100 text-slate-600 p-4 rounded-xl font-bold">修改設定</button>
                     {showTripImport && <DiningTripImportModal sourceId={sourceProjectId} data={data} calculation={calculation} travelProjects={travelProjects} onImport={onImportToTravel} onClose={()=>setShowTripImport(false)}/>}
@@ -2036,17 +2037,17 @@
             if (showWalletSetup) return <WalletSetupScreen people={trip.people} onUpdate={(newPeople) => setTrip(prev => ({ ...prev, people: newPeople }))} onNext={() => setShowWalletSetup(false)} onBack={() => setShowWalletSetup(false)} showMessage={showMessage} />;
 
             return (
-                <div className="h-full flex flex-col relative">
-                    <div className="flex bg-white border-b border-slate-200">
-                        {['setup', 'expenses', 'settle'].map(t => <button key={t} onClick={() => setTab(t)} className={`flex-1 py-3 text-sm font-bold ${tab === t ? 'text-teal-600 border-b-2 border-teal-600' : 'text-slate-400'}`}>{t === 'setup' ? '設定' : t === 'expenses' ? '記帳' : '結算'}</button>)}
+                <div className="aa-travel h-full flex flex-col relative" data-tab={tab}>
+                    <div className="aa-tabs flex bg-white border-b border-slate-200" role="tablist" aria-label="旅遊記帳分頁">
+                        {['setup', 'expenses', 'settle'].map(t => <button key={t} id={`travel-tab-${t}`} type="button" role="tab" data-tab={t} aria-selected={tab === t} aria-controls="travel-panel" tabIndex={tab === t ? 0 : -1} onKeyDown={event => { const tabs = ['setup', 'expenses', 'settle']; let next; if (event.key === 'ArrowRight') next = (tabs.indexOf(t) + 1) % 3; if (event.key === 'ArrowLeft') next = (tabs.indexOf(t) + 2) % 3; if (event.key === 'Home') next = 0; if (event.key === 'End') next = 2; if (next !== undefined) { event.preventDefault(); setTab(tabs[next]); event.currentTarget.parentElement.querySelectorAll('[role="tab"]')[next].focus(); } }} onClick={() => setTab(t)} className={`flex-1 py-3 text-sm font-bold ${tab === t ? 'text-teal-600 border-b-2 border-teal-600' : 'text-slate-400'}`}>{t === 'setup' ? '設定' : t === 'expenses' ? '記帳' : '結算'}</button>)}
                     </div>
-                    <div className="flex-1 overflow-y-auto bg-slate-50 no-scrollbar">
+                    <div className="flex-1 overflow-y-auto bg-slate-50 no-scrollbar" id="travel-panel" role="tabpanel" aria-labelledby={`travel-tab-${tab}`} tabIndex={0}>
                         {tab === 'setup' && (
-                            <div className="p-6 pb-24 space-y-4 bg-white m-4 rounded-2xl shadow-sm">
+                            <div className="aa-setup-pane p-4 pb-24"><div className="aa-setup-banner"><h2>一起出發，先設定</h2><span>旅遊設定</span></div><div className="aa-setup-form p-6 space-y-4 bg-white rounded-2xl shadow-sm">
                                 <div><label className="block text-sm text-slate-500 mb-1">旅遊名稱</label><input className="w-full p-3 border rounded-xl bg-slate-50" value={trip.name} onCompositionStart={beginTextComposition} onCompositionEnd={event => { applyInputValue(event, value => setTrip(prev => ({ ...prev, name: value }))); finishTextComposition(); }} onChange={event => applyInputValue(event, value => setTrip(prev => ({ ...prev, name: value })))} /></div>
-                                <div><label className="block text-sm text-slate-500 mb-2">成員</label><div className="space-y-2">{trip.people.map((p, idx) => (<div key={p.id} className="flex gap-2"><input className="flex-1 p-2 border rounded-lg" placeholder={getPersonNameHelper(p.id, trip.people)} value={p.name} onCompositionStart={beginTextComposition} onCompositionEnd={event => { applyInputValue(event, value => setTrip(prev => ({ ...prev, people: prev.people.map(person => person.id === p.id ? { ...person, name: value } : person) }))); finishTextComposition(); }} onChange={event => applyInputValue(event, value => setTrip(prev => ({ ...prev, people: prev.people.map(person => person.id === p.id ? { ...person, name: value } : person) })))} />{trip.people.length > 1 && <button onClick={() => removePerson(p.id)}><i className="fa-solid fa-trash text-slate-300"></i></button>}</div>))}<button onClick={addPerson} className="text-sm text-teal-600 font-bold">+ 新增成員</button></div></div>
+                                <div><label className="block text-sm text-slate-500 mb-2">成員</label><div className="space-y-2">{trip.people.map((p, idx) => (<div key={p.id} className="flex gap-2"><input className="flex-1 p-2 border rounded-lg" placeholder={getPersonNameHelper(p.id, trip.people)} value={p.name} onCompositionStart={beginTextComposition} onCompositionEnd={event => { applyInputValue(event, value => setTrip(prev => ({ ...prev, people: prev.people.map(person => person.id === p.id ? { ...person, name: value } : person) }))); finishTextComposition(); }} onChange={event => applyInputValue(event, value => setTrip(prev => ({ ...prev, people: prev.people.map(person => person.id === p.id ? { ...person, name: value } : person) })))} />{trip.people.length > 1 && <button aria-label={`移除成員 ${getPersonNameHelper(p.id, trip.people)}`} onClick={() => removePerson(p.id)}><i className="fa-solid fa-trash text-slate-300"></i></button>}</div>))}<button onClick={addPerson} className="text-sm text-teal-600 font-bold">+ 新增成員</button></div></div>
                                 <div className="pt-4 border-t border-slate-100"><button onClick={() => setShowWalletSetup(true)} className="w-full py-3 bg-teal-50 text-teal-700 rounded-xl font-bold flex items-center justify-center gap-2 border border-teal-200 hover:bg-teal-100"><i className="fa-solid fa-wallet"></i> 設定共同錢包 (家庭/情侶)</button></div>
-                            </div>
+                            </div></div>
                         )}
                         {tab === 'expenses' && (
                             <div className="p-4 pb-24">
@@ -2059,12 +2060,12 @@
                                         {dayNumbers.map(day => {
                                             const expenseCount = trip.expenses.filter(expense => (parseInt(expense.day, 10) || 1) === day).length;
                                             const selected = activeDay === day;
-                                            return <button type="button" key={day} onClick={() => setActiveDay(day)} className={`shrink-0 min-w-[88px] px-4 py-3 rounded-xl border text-sm font-bold transition ${selected ? 'bg-blue-600 text-white border-blue-600 shadow-md' : 'bg-white text-slate-500 border-slate-200'}`}>第 {day} 天 <span className={`ml-1 text-[10px] ${selected ? 'text-blue-100' : 'text-slate-300'}`}>{expenseCount} 筆</span></button>;
+                                            return <button type="button" key={day} aria-pressed={selected} onClick={() => setActiveDay(day)} className={`shrink-0 min-w-[88px] px-4 py-3 rounded-xl border text-sm font-bold transition ${selected ? 'bg-blue-600 text-white border-blue-600 shadow-md' : 'bg-white text-slate-500 border-slate-200'}`}>第 {day} 天 <span className={`ml-1 text-[10px] ${selected ? 'text-blue-100' : 'text-slate-300'}`}>{expenseCount} 筆</span></button>;
                                         })}
                                     </div>
                                 </div>
                                 <button type="button" onClick={() => setShowReceiptItems(true)} className="w-full mb-4 p-3 rounded-xl bg-teal-50 border border-teal-200 text-teal-700 font-bold">拍帳單批次新增</button>
-                                <div className="bg-teal-600 text-white p-6 rounded-2xl shadow-lg mb-6">
+                                <div className="aa-day-summary bg-teal-600 text-white p-6 rounded-2xl shadow-lg mb-6">
                                     <div className="flex items-start justify-between gap-3"><p className="text-teal-100 text-sm">第 {activeDay} 天支出</p><span className="text-xs bg-teal-700/50 px-3 py-1 rounded-full whitespace-nowrap">旅程累計 {formatMoney(tripTotal)}</span></div>
                                     <h2 className="text-4xl font-bold mt-1">{formatMoney(activeDayTotal)}</h2>
                                     <div className="mt-4 flex gap-2 text-sm text-teal-100"><span className="bg-teal-700/50 px-3 py-1 rounded-full">{activeDayExpenses.length} 筆</span><span className="bg-teal-700/50 px-3 py-1 rounded-full">{trip.people.length} 人</span></div>
@@ -2102,15 +2103,15 @@
 
 
             return (
-                <div className="p-6 pb-24">
+                <div className="aa-trip-result p-6 pb-24">
                     <h2 className="text-2xl font-bold mb-4">結算中心</h2>
                     <div className="bg-white p-6 rounded-2xl shadow-lg border border-slate-100 space-y-6">
-                        <div className="text-center border-b border-slate-100 pb-4"><h3 className="font-bold text-lg">{trip.name || '本次旅遊'}</h3><p className="text-slate-500 text-xs mt-1">全旅程結算 · 總支出 {formatMoney(expenseTotal)}</p></div>
-                        <div className="space-y-3">{transactions.map((t, i) => (<div key={i} className="flex items-center justify-between bg-slate-50 p-3 rounded-lg border border-slate-100"><div className="flex items-center gap-2"><span className="font-bold text-slate-700">{getPersonNameHelper(t.from, trip.people)}</span><span className="text-slate-400 text-xs">給</span><span className="font-bold text-slate-700">{getPersonNameHelper(t.to, trip.people)}</span></div><span className="font-bold text-teal-600">{formatMoney(Math.round(t.amount))}</span></div>))}{transactions.length === 0 && <div className="text-center text-green-600 font-bold py-4">帳目已平！</div>}</div>
+                        <div className="aa-total-summary"><div><h3 className="font-bold text-lg">{trip.name || '本次旅遊'}</h3><p>全旅程合計</p></div><div><strong className="aa-total-amount">{formatMoney(expenseTotal)}</strong><p>{Math.max(1, parseInt(trip.days, 10) || 1)} 天・{expenseCount} 筆支出</p></div></div>
+                        <div className="aa-transfer-list space-y-3"><h3 className="font-bold text-lg">建議轉帳</h3>{transactions.map((t, i) => (<div key={i} className="aa-transfer-row flex items-center justify-between bg-slate-50 p-3 rounded-lg border border-slate-100"><div className="flex items-center gap-2"><span className="font-bold text-slate-700">{getPersonNameHelper(t.from, trip.people)}</span><span className="text-slate-400 text-xs">給</span><span className="font-bold text-slate-700">{getPersonNameHelper(t.to, trip.people)}</span></div><span className="font-bold text-teal-600">{formatMoney(Math.round(t.amount))}</span></div>))}{transactions.length === 0 && <div className="text-center text-green-600 font-bold py-4">帳目已平！</div>}</div>
                         <div className="pt-4 border-t border-slate-100"><h4 className="text-sm font-bold text-slate-400 uppercase mb-3">個人收支 (含錢包合併)</h4><div className="space-y-2">{overview.map(p => { if (p.payerId && p.payerId !== p.id && p.balance === 0) return null; return (<div key={p.id} className="flex justify-between text-sm"><span>{p.name}</span><span className={p.balance >= 0 ? 'text-blue-600 font-bold' : 'text-red-500 font-bold'}>{p.balance > 0 ? `應收 ${formatMoney(Math.round(p.balance))}` : `應付 ${formatMoney(Math.round(Math.abs(p.balance)))}`}</span></div>); })}</div></div>
                         <TravelExpenseDetails groups={expenseGroups} total={expenseTotal} />
                     </div>
-                    <button onClick={() => { copyToClipboard(settlementText); showMessage({ message: '結算文字已複製！' }); }} disabled={expenseCount === 0 && transactions.length === 0} className="w-full mt-6 bg-blue-50 disabled:opacity-40 text-blue-600 p-4 rounded-xl font-bold flex items-center justify-center gap-2"><i className="fa-solid fa-copy"></i> 複製結算文字</button>
+                    <button onClick={() => { copyToClipboard(settlementText); showMessage({ message: '結算文字已複製！' }); }} disabled={expenseCount === 0 && transactions.length === 0} className="aa-primary w-full mt-6 bg-blue-50 disabled:opacity-40 text-blue-600 p-4 rounded-xl font-bold flex items-center justify-center gap-2"><i className="fa-solid fa-copy"></i> 複製結算文字</button>
                 </div>
             );
         };
@@ -2186,7 +2187,7 @@
 
             return (
                 <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 animate-fade-in">
-                    <div className="bg-white w-full max-w-md rounded-t-3xl sm:rounded-3xl p-6 h-[90vh] sm:h-auto overflow-y-auto animate-slide-up">
+                    <div className="aa-form-modal bg-white w-full max-w-md rounded-t-3xl sm:rounded-3xl p-6 h-[90vh] sm:h-auto overflow-y-auto animate-slide-up">
                         <div className="flex justify-between items-center mb-6"><h3 className="text-xl font-bold">{initialData ? '編輯' : '新增'}消費</h3><button onClick={onClose} className="text-slate-400 font-bold text-lg">✕</button></div>
                         {!initialData && (
                             <div className="mb-6">
@@ -2831,7 +2832,7 @@
                     <DialogModal dialog={dialog} onClose={() => setDialog(null)} />
                     <ShareInviteModal invite={shareInvite} onClose={() => setShareInvite(null)} />
                     {showCollaborationManager && activeProjectData?.ownerId === user.uid && <CollaborationManagerModal project={activeProjectData} user={user} onClose={() => setShowCollaborationManager(false)} onCreateInvite={handleShareProject} requestConfirm={setDialog} showMessage={showMessage} />}
-                    <header className="bg-white shadow-sm sticky top-0 z-10 px-4 py-3 flex items-center justify-between">
+                    <header className="aa-header bg-white shadow-sm sticky top-0 z-10 px-4 py-3 flex items-center justify-between">
                         {view === 'activeProject' ? (
                             <button onClick={() => { setShowCollaborationManager(false); setView('projectList'); setCurrentProjectId(null); setActiveProjectData(null); }} className="flex items-center gap-1 text-slate-500 font-bold"><i className="fa-solid fa-arrow-left"></i> 首頁</button>
                         ) : (
@@ -2857,7 +2858,7 @@
 
                     {authPersistenceWarning && <div className="max-w-md mx-auto bg-amber-50 border-b border-amber-100 px-4 py-3 text-xs leading-relaxed text-amber-800"><i className="fa-solid fa-lock-open mr-2"></i>{authPersistenceWarning}</div>}
 
-                    <main className="max-w-md mx-auto min-h-[calc(100vh-60px)] relative bg-slate-50">
+                    <main className="aa-main max-w-md mx-auto min-h-[calc(100vh-60px)] relative bg-slate-50">
                         {view === 'projectList' && <ProjectList projects={projects} isLoading={projectsLoading} warning={projectIndexWarning} onSelect={(id) => { const selected = projects.find(project => project.id === id); if (selected?.accessPending) { setProjectsLoading(true); setProjectListRetryRevision(revision => revision + 1); setDialog({ type: 'alert', title: '正在重新確認', message: '這筆首頁索引仍保留。系統正在重新確認登入與專案權限，請稍後再點一次。' }); return; } setCurrentProjectId(id); setActiveProjectData(selected || null); setView('activeProject'); }} onCreate={() => setView('createProject')} onRemove={handleRemoveProject} />}
                         {view === 'createProject' && <CreateProjectScreen onCancel={() => setView('projectList')} onCreate={createProject} showMessage={showMessage} />}
                         {view === 'activeProject' && !activeProjectData && <div className="py-20 text-center text-slate-400"><i className="fa-solid fa-spinner fa-spin text-2xl"></i><p className="mt-3 text-sm">正在載入共編專案…</p></div>}

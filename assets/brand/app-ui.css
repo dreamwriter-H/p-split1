@@ -1,0 +1,465 @@
+/* A.A 2GETHER v2.5.0 — approved colorful-card UI.
+   All rules are gated by body.aa-ui. Startup/login keep their own brand styles.
+   This file changes presentation only; semantic state and data remain in React. */
+body.aa-ui {
+    --aa-blue: #133dd5;
+    --aa-blue-dark: #0e2fae;
+    --aa-navy: #16244a;
+    --aa-paper: #f5f4f7;
+    --aa-muted: #63708c;
+    --aa-border: #dce1ee;
+    --aa-orange: #ff5b2c;
+    --aa-orange-pale: #fff0e3;
+    --aa-sky: #86d2fa;
+    --aa-sky-pale: #eef8ff;
+    --aa-lemon: #ffe635;
+    --aa-lemon-pale: #fff8ba;
+    --aa-mint: #8bdcab;
+    --aa-mint-pale: #e0f8ed;
+    --aa-green-ink: #087b69;
+    --aa-danger: #c72d3d;
+    --aa-danger-pale: #fff0f2;
+    color: var(--aa-navy);
+    background: var(--aa-paper);
+}
+
+body.aa-ui main { background-color: transparent; }
+body.aa-ui header {
+    color: var(--aa-navy);
+    border-bottom: 1px solid var(--aa-border);
+    box-shadow: none;
+}
+body.aa-ui header > button { min-height: 40px; color: var(--aa-navy); }
+body.aa-ui header > div > button[class*="bg-teal"] {
+    color: var(--aa-blue);
+    background: white;
+    border: 1px solid var(--aa-blue);
+}
+
+/* Shared reading, input and interaction foundations within app-owned surfaces. */
+.aa-ui :is(.aa-home, .aa-create, .aa-dining, .aa-wallets, .aa-travel,
+    .aa-form-modal, .aa-receipt-modal, .aa-collaboration-modal, .aa-share-modal, .aa-dialog-modal) {
+    color: var(--aa-navy);
+    line-height: 1.5;
+    overflow-wrap: break-word;
+}
+.aa-ui :is(.aa-home, .aa-create, .aa-dining, .aa-wallets, .aa-travel,
+    .aa-form-modal, .aa-receipt-modal, .aa-collaboration-modal, .aa-share-modal, .aa-dialog-modal)
+    :is(h2, h3, h4, .text-slate-700, .text-slate-800) { color: var(--aa-navy); }
+.aa-ui :is(.aa-home, .aa-create, .aa-dining, .aa-wallets, .aa-travel,
+    .aa-form-modal, .aa-receipt-modal, .aa-collaboration-modal, .aa-share-modal, .aa-dialog-modal)
+    :is(.text-slate-400, .text-slate-500, .text-slate-600) { color: var(--aa-muted); }
+.aa-ui :is(.aa-home, .aa-create, .aa-dining, .aa-wallets, .aa-travel,
+    .aa-form-modal, .aa-receipt-modal, .aa-collaboration-modal, .aa-share-modal, .aa-dialog-modal)
+    :is([class*="text-[10px]"], [class*="text-[11px]"]) { font-size: 12px; line-height: 1.45; }
+.aa-ui :is(.aa-home, .aa-create, .aa-dining, .aa-wallets, .aa-travel,
+    .aa-form-modal, .aa-receipt-modal, .aa-collaboration-modal, .aa-share-modal, .aa-dialog-modal)
+    :is(input:not([type="checkbox"]):not([type="file"]), select, textarea) {
+    min-height: 44px;
+    min-width: 0;
+    color: var(--aa-navy);
+    background-color: #f8f9fc;
+    border-color: #cbd3e5;
+    border-radius: 12px;
+    font-size: 16px;
+    line-height: 1.5;
+    accent-color: var(--aa-blue);
+}
+.aa-ui :is(.aa-home, .aa-create, .aa-dining, .aa-wallets, .aa-travel,
+    .aa-form-modal, .aa-receipt-modal, .aa-collaboration-modal, .aa-share-modal, .aa-dialog-modal)
+    input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--aa-blue); flex-shrink: 0; }
+.aa-ui :is(.aa-home, .aa-create, .aa-dining, .aa-wallets, .aa-travel,
+    .aa-form-modal, .aa-receipt-modal, .aa-collaboration-modal, .aa-share-modal, .aa-dialog-modal)
+    :is(button, a, input, select, textarea, summary, [role="button"]):focus-visible {
+    outline: 3px solid var(--aa-blue);
+    outline-offset: 3px;
+}
+.aa-ui :is(.aa-home, .aa-create, .aa-dining, .aa-wallets, .aa-travel,
+    .aa-form-modal, .aa-receipt-modal, .aa-collaboration-modal, .aa-share-modal, .aa-dialog-modal)
+    button { min-height: 40px; touch-action: manipulation; }
+.aa-ui :is(.aa-home, .aa-create, .aa-dining, .aa-wallets, .aa-travel,
+    .aa-form-modal, .aa-receipt-modal, .aa-collaboration-modal, .aa-share-modal, .aa-dialog-modal)
+    button:disabled { cursor: not-allowed; }
+
+/* Unified action colors; do not recolor selection chips as primary actions. */
+.aa-ui :is(.aa-home, .aa-create, .aa-dining, .aa-wallets, .aa-travel,
+    .aa-form-modal, .aa-receipt-modal, .aa-collaboration-modal, .aa-share-modal, .aa-dialog-modal)
+    button:is(.bg-teal-600, .bg-slate-800, .bg-blue-600, .bg-orange-500, .bg-orange-600),
+.aa-ui .aa-primary {
+    color: white;
+    background-color: var(--aa-blue);
+    background-image: none;
+    border-color: var(--aa-blue);
+    font-weight: 750;
+    box-shadow: 0 5px 14px rgb(19 61 213 / 12%);
+}
+.aa-ui :is(.aa-home, .aa-create, .aa-dining, .aa-wallets, .aa-travel,
+    .aa-form-modal, .aa-receipt-modal, .aa-collaboration-modal, .aa-share-modal, .aa-dialog-modal)
+    button:is(.bg-teal-600, .bg-slate-800, .bg-blue-600, .bg-orange-500, .bg-orange-600):hover:not(:disabled),
+.aa-ui .aa-primary:hover:not(:disabled) { background-color: var(--aa-blue-dark); }
+.aa-ui .aa-primary :is(.text-teal-600, .text-slate-700, .text-slate-800) { color: white; }
+.aa-ui :is(.aa-home, .aa-create, .aa-dining, .aa-wallets, .aa-travel,
+    .aa-form-modal, .aa-receipt-modal, .aa-collaboration-modal, .aa-share-modal, .aa-dialog-modal)
+    button:is(.border-teal-300, .border-teal-200):not(.aa-primary),
+.aa-ui .aa-secondary {
+    color: var(--aa-blue);
+    background-color: white;
+    border: 1px solid var(--aa-blue);
+    box-shadow: none;
+    font-weight: 700;
+}
+.aa-ui .aa-secondary:hover:not(:disabled) { background-color: #edf2ff; }
+.aa-ui .aa-danger,
+.aa-ui :is(.aa-form-modal, .aa-receipt-modal, .aa-collaboration-modal, .aa-share-modal, .aa-dialog-modal)
+    button.text-red-500 {
+    color: var(--aa-danger);
+    background-color: var(--aa-danger-pale);
+    border-color: #ffd6dc;
+    box-shadow: none;
+}
+.aa-ui .aa-danger:hover:not(:disabled) { color: #a51b2a; background-color: #ffe0e5; }
+.aa-ui .aa-danger.aa-primary { color: white; background-color: var(--aa-danger); border-color: var(--aa-danger); }
+.aa-ui .aa-danger.aa-primary:hover:not(:disabled) { background-color: #a51b2a; }
+.aa-ui :is(.aa-home, .aa-create, .aa-dining, .aa-wallets, .aa-travel,
+    .aa-form-modal, .aa-receipt-modal, .aa-collaboration-modal, .aa-share-modal, .aa-dialog-modal)
+    :is(.text-teal-600, .text-teal-700, .text-teal-800) { color: var(--aa-green-ink); }
+.aa-ui :is(.aa-home, .aa-create, .aa-dining, .aa-wallets, .aa-travel,
+    .aa-form-modal, .aa-receipt-modal, .aa-collaboration-modal, .aa-share-modal, .aa-dialog-modal)
+    :is(.bg-teal-50, .bg-teal-100) { background-color: var(--aa-mint-pale); }
+
+/* Home and project type selection. */
+.aa-ui .aa-home { padding: 24px 18px 112px; }
+.aa-ui .aa-home > .mb-6 { margin-bottom: 26px; }
+.aa-ui .aa-home h2 { font-weight: 850; letter-spacing: -.03em; }
+.aa-ui .aa-project-card {
+    background-color: white;
+    border: 1px solid var(--aa-border);
+    border-radius: 24px;
+    padding: 22px 18px;
+    box-shadow: 0 4px 16px rgb(22 36 74 / 4%);
+}
+.aa-ui .aa-project-card:hover { border-color: #a8b9f4; box-shadow: 0 6px 20px rgb(19 61 213 / 8%); }
+.aa-ui .aa-project-card h3 { font-size: 19px; overflow-wrap: anywhere; }
+.aa-ui .aa-project-card [class*="text-[10px]"] { font-size: 12px; }
+.aa-ui .aa-project-card .flex.gap-2.mt-2 { flex-wrap: wrap; }
+.aa-ui .aa-project-card[data-kind="dining"] :is(.bg-orange-50, .bg-orange-100) { background-color: var(--aa-orange-pale); color: #ad3d09; }
+.aa-ui .aa-project-card[data-kind="travel"] :is(.bg-blue-50, .bg-blue-100) { background-color: #dcf1ff; color: var(--aa-blue); }
+.aa-ui .aa-home > button.fixed,
+.aa-ui .aa-travel button.fixed {
+    right: max(24px, calc((100vw - 448px) / 2 + 24px));
+    width: 56px;
+    height: 56px;
+    min-height: 56px;
+}
+.aa-ui .aa-create { padding: 24px 20px 40px; }
+.aa-ui .aa-create .grid > button { border-radius: 20px; padding: 20px 16px; }
+.aa-ui .aa-create button.border-orange-500 { border-color: var(--aa-orange); background-color: var(--aa-orange-pale); }
+.aa-ui .aa-create button.border-blue-500 { border-color: var(--aa-blue); background-color: var(--aa-sky-pale); }
+
+/* Dining keeps its orange identity; amounts and final totals use lemon. */
+.aa-ui .aa-dining h2 { font-weight: 850; letter-spacing: -.03em; }
+.aa-ui .aa-dining :is(.border-orange-100, .border-orange-200) { border-color: #f7cfb0; }
+.aa-ui .aa-dining button.border-orange-500 { border-color: var(--aa-orange); background-color: var(--aa-orange-pale); color: #9a3506; }
+.aa-ui .aa-dining .bg-orange-500:not(button) { background-color: var(--aa-orange); }
+.aa-ui .aa-bill-summary,
+.aa-ui .aa-total-summary {
+    color: var(--aa-navy);
+    background-color: var(--aa-lemon);
+    background-image: none;
+    border: 0;
+    border-radius: 22px;
+    padding: 20px;
+    box-shadow: none;
+}
+.aa-ui :is(.aa-bill-summary, .aa-total-summary)
+    :is(.text-white, .text-slate-300, .text-slate-400, .text-orange-600, .text-teal-600, .text-teal-700, .text-slate-500) { color: var(--aa-navy); }
+.aa-ui :is(.aa-bill-summary, .aa-total-summary) [class*="border-white"] { border-color: rgb(22 36 74 / 20%); }
+.aa-ui :is(.aa-bill-summary, .aa-total-summary) :is(.text-4xl, .text-3xl, .text-2xl) { font-weight: 850; font-variant-numeric: tabular-nums; letter-spacing: -.025em; }
+.aa-ui .aa-dining-result { padding-bottom: 36px; }
+.aa-ui .aa-dining-result > .bg-white { border: 1px solid var(--aa-border); border-radius: 24px; box-shadow: none; }
+.aa-ui .aa-dining-result .aa-total-summary { margin: -4px -4px 20px; }
+.aa-ui .aa-dining-result .bg-orange-50 { color: #9a3506; background-color: var(--aa-orange-pale); }
+.aa-ui .aa-dining-result .aa-transfer-row { background-color: var(--aa-mint-pale); }
+
+/* Shared wallets have one mint vocabulary across both modes. */
+.aa-ui :is(.aa-wallets, .aa-dining-wallets) { color: var(--aa-navy); }
+.aa-ui .aa-wallets .grid > div {
+    background-color: white;
+    border-color: var(--aa-blue);
+    border-radius: 22px;
+    min-height: 160px;
+    box-shadow: none;
+    padding: 20px 12px;
+}
+.aa-ui .aa-wallets .grid > div.border-teal-500 { background-color: var(--aa-mint-pale); border-color: var(--aa-blue); }
+.aa-ui :is(.aa-wallets, .aa-dining-wallets)
+    :is(.bg-orange-50, .bg-orange-100, .bg-amber-100, .bg-teal-50, .bg-teal-100) {
+    color: var(--aa-green-ink);
+    background-color: var(--aa-mint-pale);
+    background-image: none;
+}
+.aa-ui :is(.aa-wallets, .aa-dining-wallets)
+    :is(.text-orange-600, .text-orange-700, .text-orange-800, .text-teal-600, .text-teal-700) { color: var(--aa-green-ink); }
+.aa-ui :is(.aa-wallets, .aa-dining-wallets) :is(.border-orange-100, .border-orange-200, .border-teal-100, .border-teal-200) { border-color: #9ce4c8; }
+.aa-ui .aa-dining-wallets { border-radius: 18px; border-color: #9ce4c8; background-color: #f1fcf7; }
+.aa-ui .aa-dining-wallets button { white-space: normal; }
+
+/* Trip tabs: mint settings, sky-blue recording, lemon settlement. */
+.aa-ui .aa-tabs {
+    display: flex;
+    margin: 12px 16px 16px;
+    padding: 0;
+    background-color: white;
+    border: 1px solid var(--aa-border);
+    border-radius: 14px;
+    overflow: hidden;
+}
+.aa-ui .aa-tabs > button {
+    flex: 1 1 0;
+    min-width: 0;
+    min-height: 48px;
+    padding: 10px 8px;
+    color: var(--aa-muted);
+    background-color: white;
+    border: 0;
+    border-right: 1px solid var(--aa-border);
+    border-bottom: 4px solid transparent;
+    font-size: 16px;
+    font-weight: 750;
+}
+.aa-ui .aa-tabs > button:last-child { border-right: 0; }
+.aa-ui .aa-tabs > button[aria-selected="true"] { color: var(--aa-navy); }
+.aa-ui .aa-tabs > button[data-tab="setup"][aria-selected="true"] { background-color: var(--aa-mint); border-bottom-color: #087b69; }
+.aa-ui .aa-tabs > button[data-tab="expenses"][aria-selected="true"] { background-color: var(--aa-sky); border-bottom-color: #075b87; }
+.aa-ui .aa-tabs > button[data-tab="settle"][aria-selected="true"] { background-color: var(--aa-lemon); border-bottom-color: #827000; }
+.aa-ui .aa-setup-banner {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px 16px;
+    margin: 2px 16px 14px;
+    padding: 20px;
+    color: var(--aa-navy);
+    background-color: #c7f4e2;
+    border-radius: 20px;
+}
+.aa-ui .aa-setup-banner h3 { font-size: 21px; font-weight: 850; }
+.aa-ui .aa-setup-banner p { color: #4e627c; font-size: 14px; }
+.aa-ui .aa-setup-form {
+    margin: 16px;
+    padding: 20px;
+    background-color: white;
+    border: 1px solid #e7eaf2;
+    border-radius: 24px;
+    box-shadow: 0 5px 20px rgb(22 36 74 / 4%);
+}
+.aa-ui .aa-setup-form > div + div { margin-top: 24px; }
+.aa-ui .aa-setup-form .space-y-2 > .flex { align-items: center; }
+.aa-ui .aa-setup-form .space-y-2 > .flex > input { flex: 1 1 auto; width: 0; }
+.aa-ui .aa-setup-form .space-y-2 > .flex > button { width: 40px; flex-shrink: 0; }
+.aa-ui .aa-setup-form .border-teal-200 { border-color: #8bdfc0; background-color: #eafbf4; color: var(--aa-green-ink); }
+.aa-ui .aa-day-summary {
+    color: var(--aa-navy);
+    background-color: var(--aa-sky);
+    background-image: none;
+    border-radius: 24px;
+    padding: 22px;
+    box-shadow: none;
+}
+.aa-ui .aa-day-summary :is(.text-white, .text-teal-100, .text-teal-200) { color: var(--aa-navy); }
+.aa-ui .aa-day-summary [class*="bg-teal-700"] { background-color: rgb(255 255 255 / 70%); color: var(--aa-navy); }
+.aa-ui .aa-day-summary h2 { font-size: clamp(32px, 9vw, 42px); font-weight: 850; letter-spacing: -.025em; }
+.aa-ui .aa-travel[data-tab="expenses"] .space-y-3 > .bg-white { border-color: var(--aa-border); border-radius: 20px; padding: 18px; box-shadow: none; }
+.aa-ui .aa-travel button[aria-label^="編輯"] { color: var(--aa-blue); background-color: #edf2ff; border-radius: 10px; }
+.aa-ui .aa-travel button[aria-label^="刪除"] { color: var(--aa-danger); background-color: var(--aa-danger-pale); border-radius: 10px; }
+.aa-ui .aa-trip-result > .bg-white { padding: 0; background: transparent; border: 0; border-radius: 0; box-shadow: none; }
+.aa-ui .aa-trip-result .aa-total-summary { text-align: left; }
+.aa-ui .aa-transfer-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px 16px;
+    padding: 14px;
+    color: var(--aa-navy);
+    background-color: white;
+    border: 1px solid var(--aa-border);
+    border-radius: 15px;
+}
+.aa-ui .aa-transfer-row > .flex { min-width: 0; flex-wrap: wrap; }
+.aa-ui .aa-transfer-row > span:last-child { white-space: nowrap; }
+.aa-ui :is(.aa-trip-result, .aa-dining-result) details { border-color: var(--aa-border); border-radius: 14px; }
+.aa-ui :is(.aa-trip-result, .aa-dining-result) summary { background-color: #f0f3f9; }
+
+/* Dialogs stay white; the overlay itself must never be recolored as a card. */
+.aa-ui :is(.aa-form-modal, .aa-receipt-modal, .aa-collaboration-modal, .aa-share-modal, .aa-dialog-modal).bg-white,
+.aa-ui :is(.aa-form-modal, .aa-receipt-modal, .aa-collaboration-modal, .aa-share-modal, .aa-dialog-modal) > :is(section, .bg-white) {
+    color: var(--aa-navy);
+    background-color: white;
+    border: 1px solid var(--aa-border);
+    border-radius: 24px;
+    box-shadow: 0 18px 50px rgb(22 36 74 / 14%);
+}
+.aa-ui :is(.aa-form-modal, .aa-receipt-modal, .aa-collaboration-modal, .aa-share-modal, .aa-dialog-modal)
+    .sticky { background-color: white; border-bottom-color: var(--aa-border); }
+.aa-ui .aa-collaboration-modal .bg-slate-50 { background-color: #f7f8fc; border-color: #e6eaf3; border-radius: 15px; }
+.aa-ui .aa-collaboration-modal .bg-teal-50 { background-color: #e6faf3; border-color: #abebd9; border-radius: 15px; }
+.aa-ui .aa-collaboration-modal .bg-amber-50 { color: #805000; background-color: #fff7d6; border-color: #f6dc84; }
+.aa-ui .aa-share-modal textarea { min-height: 112px; }
+.aa-ui .aa-receipt-modal textarea { min-height: 156px; }
+
+@media (max-width: 359px) {
+    .aa-ui .aa-home { padding-left: 14px; padding-right: 14px; }
+    .aa-ui .aa-project-card { padding: 18px 14px; }
+    .aa-ui .aa-project-card .flex.gap-4 { gap: 10px; }
+    .aa-ui .aa-project-card h3 { font-size: 17px; }
+    .aa-ui .aa-setup-form { margin: 12px; padding: 16px; }
+    .aa-ui .aa-setup-banner { margin-left: 12px; margin-right: 12px; padding: 16px; }
+    .aa-ui .aa-day-summary { padding: 18px; }
+    .aa-ui .aa-total-summary { padding: 16px; }
+    .aa-ui .aa-wallets .grid { gap: 10px; }
+    .aa-ui .aa-wallets .grid > div { padding: 16px 10px; }
+}
+@media (prefers-reduced-motion: reduce) {
+    .aa-ui :is(.aa-home, .aa-create, .aa-dining, .aa-wallets, .aa-travel,
+        .aa-form-modal, .aa-receipt-modal, .aa-collaboration-modal, .aa-share-modal, .aa-dialog-modal)
+        :is(button, [role="button"], [class*="animate-"]) { animation: none; transition: none; }
+}
+
+/* Numbered progress is native UI, not a decorative illustration. */
+.aa-ui .aa-main {
+    background-image: url("./ui-corner.webp");
+    background-repeat: no-repeat;
+    background-position: right bottom;
+    background-size: 190px auto;
+}
+.aa-ui .aa-dining-steps {
+    display: flex;
+    list-style: none;
+    margin: 36px 24px 24px;
+    padding: 0;
+}
+.aa-ui .aa-dining-steps li {
+    flex: 1 1 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-width: 0;
+    gap: 5px;
+    border-top: 2px solid #cdd5e8;
+    color: var(--aa-muted);
+    text-align: center;
+}
+.aa-ui .aa-dining-steps li span {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    margin-top: -17px;
+    color: var(--aa-navy);
+    background-color: white;
+    border: 1px solid #cdd5e8;
+    border-radius: 50%;
+    font-size: 16px;
+    font-weight: 750;
+}
+.aa-ui .aa-dining-steps li b { font-size: 12px; line-height: 1.5; }
+.aa-ui .aa-dining-steps li[data-complete="true"] { border-top-color: var(--aa-orange); color: #a33c0b; }
+.aa-ui .aa-dining-steps li[data-complete="true"] span { border-color: var(--aa-orange); background-color: var(--aa-orange-pale); }
+.aa-ui .aa-dining-steps li[aria-current="step"] span { background-color: var(--aa-orange); color: var(--aa-navy); }
+.aa-ui .aa-setup-banner h2 { margin: 0; font-size: 21px; font-weight: 850; }
+.aa-ui .aa-setup-banner > span { color: #4e627c; font-size: 14px; }
+.aa-ui .aa-total-amount { color: var(--aa-navy); font-size: clamp(32px, 9vw, 42px); font-weight: 850; letter-spacing: -.025em; line-height: 1.15; }
+.aa-ui .aa-wallets [class*="from-orange-100"] { background-color: var(--aa-mint-pale); background-image: none; color: var(--aa-green-ink); }
+
+/* Explicit action roles take precedence over all legacy utility combinations. */
+.aa-ui :is(.aa-home, .aa-create, .aa-dining, .aa-wallets, .aa-travel,
+    .aa-form-modal, .aa-receipt-modal, .aa-collaboration-modal, .aa-share-modal, .aa-dialog-modal)
+    button.aa-primary {
+    color: white;
+    background-color: var(--aa-blue);
+    border-color: var(--aa-blue);
+}
+.aa-ui :is(.aa-home, .aa-create, .aa-dining, .aa-wallets, .aa-travel,
+    .aa-form-modal, .aa-receipt-modal, .aa-collaboration-modal, .aa-share-modal, .aa-dialog-modal)
+    button.aa-primary:hover:not(:disabled) { background-color: var(--aa-blue-dark); }
+.aa-ui :is(.aa-home, .aa-create, .aa-dining, .aa-wallets, .aa-travel,
+    .aa-form-modal, .aa-receipt-modal, .aa-collaboration-modal, .aa-share-modal, .aa-dialog-modal)
+    button.aa-secondary {
+    color: var(--aa-blue);
+    background-color: white;
+    border: 1px solid var(--aa-blue);
+    box-shadow: none;
+}
+.aa-ui :is(.aa-home, .aa-create, .aa-dining, .aa-wallets, .aa-travel,
+    .aa-form-modal, .aa-receipt-modal, .aa-collaboration-modal, .aa-share-modal, .aa-dialog-modal)
+    button.aa-secondary:hover:not(:disabled) { background-color: #edf2ff; }
+.aa-ui :is(.aa-home, .aa-create, .aa-dining, .aa-wallets, .aa-travel,
+    .aa-form-modal, .aa-receipt-modal, .aa-collaboration-modal, .aa-share-modal, .aa-dialog-modal)
+    button.aa-danger {
+    color: var(--aa-danger);
+    background-color: var(--aa-danger-pale);
+    border-color: #ffd6dc;
+    box-shadow: none;
+}
+.aa-ui :is(.aa-home, .aa-create, .aa-dining, .aa-wallets, .aa-travel,
+    .aa-form-modal, .aa-receipt-modal, .aa-collaboration-modal, .aa-share-modal, .aa-dialog-modal)
+    button.aa-danger:hover:not(:disabled) { color: #a51b2a; background-color: #ffe0e5; }
+.aa-ui :is(.aa-home, .aa-create, .aa-dining, .aa-wallets, .aa-travel,
+    .aa-form-modal, .aa-receipt-modal, .aa-collaboration-modal, .aa-share-modal, .aa-dialog-modal)
+    button.aa-danger:is(.aa-primary, .bg-slate-800, .bg-teal-600) {
+    color: white;
+    background-color: var(--aa-danger);
+    border-color: var(--aa-danger);
+}
+.aa-ui :is(.aa-home, .aa-create, .aa-dining, .aa-wallets, .aa-travel,
+    .aa-form-modal, .aa-receipt-modal, .aa-collaboration-modal, .aa-share-modal, .aa-dialog-modal)
+    button.aa-danger:is(.aa-primary, .bg-slate-800, .bg-teal-600):hover:not(:disabled) { background-color: #a51b2a; color: white; }
+.aa-ui :is(.aa-home, .aa-create, .aa-dining, .aa-wallets, .aa-travel,
+    .aa-form-modal, .aa-receipt-modal, .aa-collaboration-modal, .aa-share-modal, .aa-dialog-modal)
+    button:is(.aa-primary, .aa-secondary, .aa-danger, .bg-teal-600, .bg-slate-800, .bg-blue-600, .bg-orange-500, .bg-orange-600)
+    :is(.text-teal-600, .text-teal-700, .text-teal-800, .text-slate-700, .text-slate-800, .text-white) { color: inherit; }
+
+/* One outer gutter per setup pane; summaries share a responsive two-column row. */
+.aa-ui .aa-setup-pane { padding: 4px 16px 96px; }
+.aa-ui .aa-setup-pane .aa-setup-banner { margin: 0 0 14px; }
+.aa-ui .aa-setup-pane .aa-setup-form { margin: 0; }
+.aa-ui .aa-trip-result .aa-total-summary {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+}
+.aa-ui .aa-trip-result .aa-total-summary > div { min-width: 0; max-width: 100%; }
+.aa-ui .aa-total-amount { overflow-wrap: anywhere; }
+@media (max-width: 359px) {
+    .aa-ui .aa-setup-pane { padding-left: 12px; padding-right: 12px; }
+    .aa-ui .aa-setup-pane .aa-setup-form { padding: 16px; }
+}
+
+/* Preserve readable labels when names or financial amounts are unusually long. */
+.aa-ui .aa-dining-result .aa-total-summary > .flex-1 { flex: 1 1 140px; }
+.aa-ui .aa-dining-result .aa-total-summary > .shrink-0 { flex: 0 1 auto; max-width: 100%; }
+.aa-ui .aa-total-summary :is(p, strong) { overflow-wrap: anywhere; }
+.aa-ui .aa-bill-summary p.text-4xl { font-size: clamp(30px, 9vw, 40px); }
+.aa-ui .aa-travel[data-tab="expenses"] .space-y-3 > .bg-white > .flex:first-child { flex-wrap: wrap; gap: 10px; }
+.aa-ui .aa-travel[data-tab="expenses"] .space-y-3 > .bg-white > .flex:first-child > div:first-child { flex: 1 1 140px; min-width: 0; }
+.aa-ui .aa-travel[data-tab="expenses"] .space-y-3 > .bg-white > .flex:first-child > div:last-child { flex: 0 1 auto; max-width: 100%; margin-left: auto; }
+.aa-ui .aa-travel[data-tab="expenses"] .space-y-3 > .bg-white > .flex:first-child > div:last-child > span { overflow-wrap: anywhere; min-width: 0; }
+.aa-ui .aa-travel button.fixed { bottom: max(20px, env(safe-area-inset-bottom)); }
+.aa-ui .aa-dining-result .aa-wallet-group { border-color: #9ce4c8; }
+.aa-ui .aa-dining-result .aa-wallet-group .bg-orange-50 { background-color: var(--aa-mint-pale); color: var(--aa-green-ink); }
+.aa-ui .aa-dining-result .aa-wallet-group :is(.text-orange-600, .text-orange-700, .text-orange-800) { color: var(--aa-green-ink); }
+.aa-ui .aa-header > .flex > h1 { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); max-width: calc(100% - 200px); text-align: center; font-size: 16px; }
+
+/* Enabled actions must not look disabled or disappear against white surfaces. */
+.aa-ui :is(.aa-home, .aa-create, .aa-dining, .aa-wallets, .aa-travel,
+    .aa-form-modal, .aa-receipt-modal, .aa-collaboration-modal, .aa-share-modal, .aa-dialog-modal)
+    button:not(:disabled).text-slate-300,
+.aa-ui :is(.aa-home, .aa-create, .aa-dining, .aa-wallets, .aa-travel,
+    .aa-form-modal, .aa-receipt-modal, .aa-collaboration-modal, .aa-share-modal, .aa-dialog-modal)
+    button:not(:disabled) .text-slate-300 { color: var(--aa-muted); }
+.aa-ui .aa-header button[aria-label="登出"] { color: var(--aa-muted); }
