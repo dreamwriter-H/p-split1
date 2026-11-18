@@ -1,0 +1,67 @@
+{
+  "sourceSha256": "b94325593fededb56323b97d59e91230085511c66f463ac6813db6b53de0140a",
+  "tests": [
+    {
+      "name": "single entry UI cancel then delete confirmation; seven-day archive and minute audit",
+      "result": "passed"
+    },
+    {
+      "name": "RecoveryPanel restores with second actor and keeps delete/restore audit",
+      "result": "passed"
+    },
+    {
+      "name": "whole selected day confirms and archives zero-amount record without renumbering",
+      "result": "passed"
+    },
+    {
+      "name": "dining item uses same confirmation/archive/restore path",
+      "result": "passed"
+    },
+    {
+      "name": "normal production autosave appends committed edit history",
+      "result": "passed"
+    },
+    {
+      "name": "confirmation then concurrent item edit rejects deletion without partial write",
+      "result": "passed"
+    },
+    {
+      "name": "whole-day tx retry with new expense rejects old snapshot atomically",
+      "result": "passed"
+    },
+    {
+      "name": "seven days hard boundary rejects restore without publishing success",
+      "result": "passed"
+    },
+    {
+      "name": "one millisecond before expiry remains restorable",
+      "result": "passed"
+    },
+    {
+      "name": "stale edit after delete then restore rejected; pending draft preserved",
+      "result": "passed"
+    },
+    {
+      "name": "stale new record into deleted slot is rejected and draft retained",
+      "result": "passed"
+    },
+    {
+      "name": "open add-expense draft survives remote deletion of its selected day",
+      "result": "passed"
+    },
+    {
+      "name": "production edits/delete/restore rotate gated revision and action token",
+      "result": "passed"
+    },
+    {
+      "name": "actual dining import atomically updates source and target gated revisions/audit",
+      "result": "passed"
+    },
+    {
+      "name": "permission failure keeps original records and avoids success message",
+      "result": "passed"
+    }
+  ],
+  "errors": [],
+  "requests": []
+}

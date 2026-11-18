@@ -40,7 +40,7 @@ node --test tests/*.test.cjs functions/test/*.test.cjs
 
 發布前依序完成：
 
-1. 跑過 `tests/recovery-rules.emulator.cjs` 的真實規則編譯及 27 個 Emulator 情境。本環境下載 Emulator JAR 被 403 網路政策擋住；新增的 GitHub Actions 工作流程只執行測試，不發布網站或 Firebase。
+1. 已在 GitHub 測試機通過 `tests/recovery-rules.emulator.cjs` 的真實規則編譯及 27 個 Emulator 情境。驗證證據見 `VERIFICATION_v2.6.0.md`。
 2. 確認 Firebase 專案 `spliteasy-2026`，部署 `firestore.rules`；使用授權測試帳本驗證成員可讀寫、新舊版本檢查，以及刪除／還原交易。不要拿真實帳本做破壞性測試。
 3. 審核並部署 `functions:recovery-cleanup`，確認 Scheduler 成功執行、期限欄位索引可查詢、記錄中沒有失敗。需要計費／管理權限，這份草稿沒有啟用任何付費服務。
 4. 確認以上檢查完成後才合併前端至 `main`，等待 GitHub Pages 成功並檢查正式手機畫面。iOS Safari 的原生日期 UI 尚需真機確認。

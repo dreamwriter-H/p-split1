@@ -77,6 +77,8 @@ The test script passes `node --check`. Java 21 and the test dependencies are
 installed in the paths shown above. A real Firestore Emulator run was attempted,
 but its `cloud-firestore-emulator-v1.19.8.jar` download returned **403 Domain
 forbidden** under this cloud environment's network policy. Therefore the 27
-emulator scenarios have **not run**, and Firestore compilation/enforcement is
-not yet verified. The rules have not been deployed. Run this suite where the
-emulator is available before release; do not count the source review as a pass.
+emulator scenarios could not run in the Codex workspace.
+
+GitHub Actions ran the emulator with the root-level `firebase.emulator.json`
+configuration and passed all 27 cases. Production rules are still undeployed.
+[Recovery checks result](https://github.com/dreamwriter-H/p-split1/actions/runs/44222666428/job/134528116361)

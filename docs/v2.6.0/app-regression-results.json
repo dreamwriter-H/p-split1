@@ -1,0 +1,205 @@
+{
+  "sourceSha": "b94325593fededb56323b97d59e91230085511c66f463ac6813db6b53de0140a",
+  "checks": [
+    "Confirm initial focus/cycle/Escape cancel leaves entry unchanged",
+    "One confirmed deletion removes entry once and saves one archive/delete event",
+    "One restore restores original amount once and removes archive",
+    "Stable dayOrder [1,3] renders form option IDs 1/3, labels Day1/Day2",
+    "Deleted selected day shows placeholder; native reselect permits saving existing draft",
+    "Offline pending draft blocks leaving active project and remains available",
+    "Discard async load sets inert/focus lock, prevents new editing, and loads latest only after resolution",
+    "Editor opened before delete/restore cannot overwrite new generation and retains draft",
+    "Name-only editor save preserves concurrent remote amount/payer changes"
+  ],
+  "limitations": "Actual production App and modules with in-memory Firebase adapter; not live Firebase rules or transactions.",
+  "dayOptions": [
+    {
+      "value": "1",
+      "text": "第 1 天"
+    },
+    {
+      "value": "3",
+      "text": "第 2 天"
+    }
+  ],
+  "dayReselect": {
+    "invalidVisibleValue": "",
+    "reselectedValue": "1",
+    "saved": true
+  },
+  "finalProject": {
+    "id": "trip-demo",
+    "ownerId": "fixture-user",
+    "type": "travel",
+    "name": "回收桶實際 App 測試",
+    "schemaVersion": "2.2.0",
+    "createdAt": "2026-11-18T00:00:00Z",
+    "updatedAt": "2026-11-18T02:23:53.828Z",
+    "data": {
+      "name": "回收桶實際 App 測試",
+      "people": [
+        {
+          "id": 1,
+          "name": "小安",
+          "payerId": 1
+        },
+        {
+          "id": 2,
+          "name": "小美",
+          "payerId": 2
+        }
+      ],
+      "days": 1,
+      "dayOrder": [
+        1
+      ],
+      "daySequence": 3,
+      "expenses": [
+        {
+          "desc": "不應遺失的草稿",
+          "amount": 275,
+          "payers": {
+            "1": 275
+          },
+          "splitBetween": [
+            1,
+            2
+          ],
+          "day": 1,
+          "id": "c5754beae8c085403980152581d3b52716494a4cc5e0a817"
+        },
+        {
+          "id": "lunch",
+          "desc": "只改名稱不覆蓋遠端金額",
+          "amount": 2200,
+          "day": 1,
+          "payers": {
+            "1": 2200
+          },
+          "splitBetween": [
+            1,
+            2
+          ],
+          "_recoveryGeneration": "remote-restore"
+        }
+      ],
+      "activityLog": [
+        {
+          "id": "5a64a9ca5cb411752ae0c0d660bdbf05b91b33825ad4ec2e:expenses:lunch:delete",
+          "at": "2026-11-18T02:23:48.345Z",
+          "actorId": "fixture-user",
+          "actorName": "測試成員",
+          "action": "delete",
+          "collection": "expenses",
+          "entryId": "lunch",
+          "label": "測試午餐",
+          "changedFields": [],
+          "archiveId": "5a64a9ca5cb411752ae0c0d660bdbf05b91b33825ad4ec2e"
+        },
+        {
+          "id": "bb517a4b4f6c9fc1f3fd39dafb180d527aee9950a8b5cfe5:expenses:lunch:restore",
+          "at": "2026-11-18T02:23:48.571Z",
+          "actorId": "fixture-user",
+          "actorName": "測試成員",
+          "action": "restore",
+          "collection": "expenses",
+          "entryId": "lunch",
+          "label": "測試午餐",
+          "changedFields": [],
+          "archiveId": "5a64a9ca5cb411752ae0c0d660bdbf05b91b33825ad4ec2e"
+        },
+        {
+          "id": "527ed90849b79f92d8347afa19c638e455acfa68e90ab4b6:expenses:c5754beae8c085403980152581d3b52716494a4cc5e0a817:create",
+          "at": "2026-11-18T02:23:49.906Z",
+          "actorId": "fixture-user",
+          "actorName": "測試成員",
+          "action": "create",
+          "collection": "expenses",
+          "entryId": "c5754beae8c085403980152581d3b52716494a4cc5e0a817",
+          "label": "不應遺失的草稿",
+          "changedFields": []
+        },
+        {
+          "id": "remote-delete:expenses:lunch:delete",
+          "at": "2026-11-18T02:23:51.492Z",
+          "actorId": "other-editor",
+          "actorName": "另一個成員",
+          "action": "delete",
+          "collection": "expenses",
+          "entryId": "lunch",
+          "label": "測試午餐",
+          "changedFields": [],
+          "archiveId": "remote-delete"
+        },
+        {
+          "id": "remote-restore:expenses:lunch:restore",
+          "at": "2026-11-18T02:23:51.493Z",
+          "actorId": "other-editor",
+          "actorName": "另一個成員",
+          "action": "restore",
+          "collection": "expenses",
+          "entryId": "lunch",
+          "label": "測試午餐",
+          "changedFields": [],
+          "archiveId": "remote-delete"
+        },
+        {
+          "id": "5df185e033ceaf8d754508c52b4434251dcad38167cbb511:expenses:lunch:edit",
+          "at": "2026-11-18T02:23:53.828Z",
+          "actorId": "fixture-user",
+          "actorName": "測試成員",
+          "action": "edit",
+          "collection": "expenses",
+          "entryId": "lunch",
+          "label": "只改名稱不覆蓋遠端金額",
+          "changedFields": [
+            "名稱"
+          ]
+        }
+      ],
+      "recycleBin": []
+    },
+    "recycleBinNextExpiry": null,
+    "recoveryWriteToken": "5df185e033ceaf8d754508c52b4434251dcad38167cbb511",
+    "recoveryWriteRevision": 5,
+    "lastUpdatedBy": "fixture-user"
+  },
+  "staleEditor": {
+    "originalGen": "bb517a4b4f6c9fc1f3fd39dafb180d527aee9950a8b5cfe5",
+    "restoredGen": "remote-restore",
+    "latestAmount": 1400,
+    "final": {
+      "id": "lunch",
+      "desc": "測試午餐",
+      "amount": 1400,
+      "day": 1,
+      "payers": {
+        "1": 1400
+      },
+      "splitBetween": [
+        1,
+        2
+      ],
+      "_recoveryGeneration": "remote-restore"
+    },
+    "dialogText": [
+      "帳目已被刪除或還原這個編輯視窗的原始帳目已變更，未覆蓋目前的帳目。已填內容仍保留；請先確認最新帳目。確定"
+    ],
+    "formStillOpen": 1
+  },
+  "mergedEditor": {
+    "id": "lunch",
+    "desc": "只改名稱不覆蓋遠端金額",
+    "amount": 2200,
+    "day": 1,
+    "payers": {
+      "1": 2200
+    },
+    "splitBetween": [
+      1,
+      2
+    ],
+    "_recoveryGeneration": "remote-restore"
+  },
+  "pageerrors": []
+}

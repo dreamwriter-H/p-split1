@@ -1,0 +1,90 @@
+{
+  "sourceSha": "b94325593fededb56323b97d59e91230085511c66f463ac6813db6b53de0140a",
+  "cases": [
+    {
+      "name": "fast-signed-out",
+      "passed": true,
+      "checkpoint": "999ms splash / 1000ms next screen; later auth no second hold",
+      "final": {
+        "splash": false,
+        "login": false,
+        "home": true,
+        "scheduled": 1,
+        "fired": 1,
+        "cleared": 0,
+        "unsubscribed": 0
+      }
+    },
+    {
+      "name": "fast-signed-in",
+      "passed": true,
+      "checkpoint": "999ms splash / 1000ms next screen; later auth no second hold",
+      "final": {
+        "splash": false,
+        "login": true,
+        "home": false,
+        "scheduled": 1,
+        "fired": 1,
+        "cleared": 0,
+        "unsubscribed": 0
+      }
+    },
+    {
+      "name": "slow-auth",
+      "passed": true,
+      "checkpoint": "auth at2000ms, splash at2999ms, home at3000ms",
+      "final": {
+        "splash": false,
+        "login": false,
+        "home": true,
+        "scheduled": 1,
+        "fired": 1,
+        "cleared": 0,
+        "unsubscribed": 0
+      }
+    },
+    {
+      "name": "auth-changes-during-hold",
+      "passed": true,
+      "checkpoint": "auth changes at400ms; original1000ms deadline preserved",
+      "final": {
+        "splash": false,
+        "login": false,
+        "home": true,
+        "scheduled": 1,
+        "fired": 1,
+        "cleared": 0,
+        "unsubscribed": 0
+      }
+    },
+    {
+      "name": "unmount-cleanup",
+      "passed": true,
+      "checkpoint": "unmount at500ms cancels held callback and auth listener",
+      "final": {
+        "splash": false,
+        "login": false,
+        "home": false,
+        "scheduled": 1,
+        "fired": 0,
+        "cleared": 1,
+        "unsubscribed": 1
+      }
+    },
+    {
+      "name": "safety-fallback-late-auth",
+      "passed": true,
+      "checkpoint": "8s safety +1s hold; late auth does not restart splash",
+      "final": {
+        "splash": false,
+        "login": false,
+        "home": true,
+        "scheduled": 1,
+        "fired": 1,
+        "cleared": 0,
+        "unsubscribed": 0
+      }
+    }
+  ],
+  "limitations": "Actual production App under mocked Firebase adapters and virtual time; no live Google sign-in or network account data."
+}

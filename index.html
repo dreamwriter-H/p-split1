@@ -2971,13 +2971,18 @@
 
             const updateCurrentData = (newData, baseData) => {
                 const currentProject = activeProjectRef.current || activeProjectData;
-                if (!currentProject || !currentProjectId) return;
+                const actorUid = auth.currentUser?.uid;
+                if (!currentProject || !currentProjectId || !actorUid) return;
 
                 const operations = buildDataOperations(baseData || currentProject.data || {}, newData);
                 if (!operations.length) return;
                 if (recoveryBusyRef.current) return;
 
                 const existingPending = pendingProjectUpdateRef.current;
+                if (existingPending?.actorUid && existingPending.actorUid !== actorUid) {
+                    setSyncConflict({ projectId: currentProjectId, message: '瀏覽器還有先前帳號的未同步草稿，請切回原帳號處理。' });
+                    return;
+                }
                 if (existingPending?.operations?.length && existingPending.projectId !== currentProjectId) {
                     showMessage({ title: '另一個帳本還有草稿', message: '請先返回原帳本處理未同步草稿，再修改這個帳本。' });
                     return;
@@ -2985,7 +2990,7 @@
                 const pendingOperations = existingPending?.projectId === currentProjectId
                     ? [...existingPending.operations, ...operations]
                     : operations;
-                pendingProjectUpdateRef.current = { projectId: currentProjectId, actorUid: auth.currentUser?.uid, operations: pendingOperations };
+                pendingProjectUpdateRef.current = { projectId: currentProjectId, actorUid, operations: pendingOperations };
 
                 const optimisticData = applyDataOperations(currentProject.data || {}, operations);
                 const updatedProject = {

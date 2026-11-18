@@ -1,0 +1,84 @@
+[
+  {
+    "width": 320,
+    "checks": [
+      "dialog semantics",
+      "valid and expired archives",
+      "seven-day maximum clamp",
+      "invalid time excluded",
+      "Taipei minute timestamp",
+      "day entry count",
+      "long label bounds",
+      "focus trap",
+      "keyboard tabs",
+      "history chronology and field labels",
+      "30-second expiry refresh",
+      "restore callback",
+      "Escape and focus return"
+    ],
+    "bounds": {
+      "viewport": 320,
+      "documentWidth": 320,
+      "panel": {
+        "x": 10,
+        "y": 63.296875,
+        "width": 300,
+        "height": 717.390625,
+        "top": 63.296875,
+        "right": 310,
+        "bottom": 780.6875,
+        "left": 10
+      },
+      "contentWidth": 283,
+      "contentScrollWidth": 283
+    },
+    "status": "pass"
+  },
+  {
+    "width": 390,
+    "checks": [
+      "dialog semantics",
+      "valid and expired archives",
+      "seven-day maximum clamp",
+      "invalid time excluded",
+      "Taipei minute timestamp",
+      "day entry count",
+      "long label bounds",
+      "focus trap",
+      "keyboard tabs",
+      "history chronology and field labels",
+      "30-second expiry refresh",
+      "restore callback",
+      "Escape and focus return"
+    ],
+    "bounds": {
+      "viewport": 390,
+      "documentWidth": 390,
+      "panel": {
+        "x": 16,
+        "y": 63.296875,
+        "width": 358,
+        "height": 717.390625,
+        "top": 63.296875,
+        "right": 374,
+        "bottom": 780.6875,
+        "left": 16
+      },
+      "contentWidth": 341,
+      "contentScrollWidth": 341
+    },
+    "status": "pass"
+  },
+  {
+    "name": "edge cases",
+    "checks": [
+      "empty bin",
+      "empty history",
+      "busy restore disabled",
+      "restore rejection displayed",
+      "restore failure permits retry",
+      "external dialog keeps Escape and Tab"
+    ],
+    "status": "pass"
+  }
+]

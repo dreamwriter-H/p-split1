@@ -1,0 +1,102 @@
+{
+  "webkitAvailable": false,
+  "webkitPath": "/home/agent/.cache/ms-playwright/webkit-2336/pw_run.sh",
+  "cases": [
+    {
+      "engine": "chromium",
+      "width": 320,
+      "bounds": {
+        "input": {
+          "left": 24,
+          "right": 296,
+          "width": 272
+        },
+        "parent": {
+          "left": 24,
+          "right": 296,
+          "width": 272
+        },
+        "viewport": 320,
+        "scrollWidth": 320,
+        "type": "date",
+        "value": "2026-11-17",
+        "minInlineSize": "0px",
+        "maxInlineSize": "100%",
+        "appearance": "none"
+      },
+      "picker": {
+        "supported": true,
+        "disabled": false,
+        "readOnly": false,
+        "invoked": {
+          "ok": true,
+          "error": null
+        }
+      }
+    },
+    {
+      "engine": "chromium",
+      "width": 375,
+      "bounds": {
+        "input": {
+          "left": 24,
+          "right": 351,
+          "width": 327
+        },
+        "parent": {
+          "left": 24,
+          "right": 351,
+          "width": 327
+        },
+        "viewport": 375,
+        "scrollWidth": 375,
+        "type": "date",
+        "value": "2026-11-17",
+        "minInlineSize": "0px",
+        "maxInlineSize": "100%",
+        "appearance": "none"
+      },
+      "picker": {
+        "supported": true,
+        "disabled": false,
+        "readOnly": false,
+        "invoked": {
+          "ok": true,
+          "error": null
+        }
+      }
+    },
+    {
+      "engine": "chromium",
+      "width": 390,
+      "bounds": {
+        "input": {
+          "left": 24,
+          "right": 366,
+          "width": 342
+        },
+        "parent": {
+          "left": 24,
+          "right": 366,
+          "width": 342
+        },
+        "viewport": 390,
+        "scrollWidth": 390,
+        "type": "date",
+        "value": "2026-11-17",
+        "minInlineSize": "0px",
+        "maxInlineSize": "100%",
+        "appearance": "none"
+      },
+      "picker": {
+        "supported": true,
+        "disabled": false,
+        "readOnly": false,
+        "invoked": {
+          "ok": true,
+          "error": null
+        }
+      }
+    }
+  ]
+}
