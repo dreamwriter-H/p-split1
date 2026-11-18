@@ -11,7 +11,6 @@ on:
       - firestore.rules
       - firebase.json
       - firebase.emulator.json
-      - functions/**
       - tests/**
       - .github/workflows/recovery-checks.yml
   workflow_dispatch:
@@ -33,9 +32,7 @@ jobs:
           distribution: temurin
           java-version: '21'
       - run: npm ci --prefix tests
-      - run: node --test tests/*.test.cjs functions/test/*.test.cjs
-      - run: npm ci --prefix functions
-      - run: npm --prefix functions run check
+      - run: node --test tests/*.test.cjs
       - name: Compile production JSX
         env:
           NODE_PATH: ${{ github.workspace }}/tests/node_modules

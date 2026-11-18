@@ -2,29 +2,27 @@
 
 狀態：功能草稿已存 GitHub 分支 `feat/v2.6.0-recovery-history`；正式 `main` 與 Firebase 尚未部署這批變更。
 
-本次測試的 `index.html` SHA-256 為 `b94325593fededb56323b97d59e91230085511c66f463ac6813db6b53de0140a`。
+本次測試的 `index.html` SHA-256 為 `1120765d1c2ace13a6f8af587335c75231ed2dddcc31f562f6d9d3eb1ea66a29`。
 
 ## 本機已通過
 
 | 範圍 | 結果 | 驗證內容 |
 | --- | --- | --- |
-| Node 純邏輯及同步測試 | 59 個 runner tests 全過，包含錢包測試檔內的 14 情境 | 七天邊界、整天還原、穩定日序、零元／不完整品項、歷程、容量、匯入、舊修改不復活帳目 |
+| Node 純邏輯及同步測試 | 45 個 runner tests 全過，包含錢包測試檔內的 14 情境 | 七天邊界、整天還原、穩定日序、零元／不完整品項、歷程、容量、匯入、舊修改不復活帳目 |
 | 正式 handlers 與元件的瀏覽器整合 | 15/15 通過 | 真實刪除／還原／同步 handler，記憶體 Firestore 交易替身、重試、權限錯誤、雙文件匯入、token/revision |
 | 完整 React App 瀏覽器回歸 | 9/9 通過，0 page errors | 確認焦點與取消、單次刪除還原、日選單、草稿保護、捨棄鎖定、開窗後刪除還原及遠端欄位保留 |
 | 回收桶元件 | 32 項通過 | 320/390px、無橫向溢出、臺灣 HH:mm、過期隱藏、鍵盤 tabs、焦點、busy/error/empty |
 | 開場額外停留 | 6/6 通過 | 真實 App effect＋虛擬時鐘，快／慢 auth、999/1000ms、卸載取消、8s 安全逾時、後續登入不重播 |
 | 聚餐手機日期欄 | Chromium 320/375/390px 通過 | 父層與畫面右界、填入／清空、真實 click 觸發原生 showPicker |
-| 排程清理 | 14 個 helper/mock 測試包含在 Node runner 結果中 | 伺服器時間、到期索引、交易重讀、同時還原、分頁上限、部分失敗、只更新指定欄位 |
-| 語法及 patch | 通過 | Babel 解析實際 JSX、functions/JS 語法、git diff --check |
+| 語法及 patch | 通過 | Babel 解析實際 JSX、JS 語法、git diff --check |
 
 可重跑的核心檢查：
 
 ```sh
-node --test tests/*.test.cjs functions/test/*.test.cjs
-npm --prefix functions run check
+node --test tests/*.test.cjs
 ```
 
-瀏覽器測試使用正式 App 原始碼與模組，但 Firebase/Auth 用測試替身，資料全為虛構帳目；沒有登入／修改正式帳本，也不能據此認定正式 Firestore 規則或雲端排程已生效。參見 [測試結果與畫面](docs/v2.6.0/README.md)。
+瀏覽器測試使用正式 App 原始碼與模組，但 Firebase/Auth 用測試替身，資料全為虛構帳目；沒有登入／修改正式帳本，也不能據此認定正式 Firestore 規則已生效。參見 [測試結果與畫面](docs/v2.6.0/README.md)。
 
 ## 資料庫規則驗證
 
@@ -35,6 +33,5 @@ npm --prefix functions run check
 ## 上線前仍須完成
 
 - 取得具 `spliteasy-2026` 管理權限的 Firebase 登入，部署規則，再用授權測試帳本驗證真實交易。
-- 確認 Blaze／Cloud Scheduler 等前提後部署排程，檢查實際執行與失敗告警。程式已備妥不代表背景清理已啟用。
 - iOS Safari 真機確認原生日期欄。此環境沒有 WebKit 執行檔，Chromium 無法代表 iOS 的原生控制項。
 - 完成上述驗證才發布前端；發布順序及相容回退限制見 [交接文件](HANDOFF_v2.6.0_RECOVERY.md)。

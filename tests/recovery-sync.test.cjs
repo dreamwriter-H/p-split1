@@ -82,13 +82,16 @@ test('ID碰撞不會覆蓋既有帳目，彼此編輯不同欄位仍可合併並
     assert.deepEqual(next.data.activityLog[0].changedFields, ['名稱']);
 });
 
-test('每次刪除、還原及到期清理都更新雲端排程使用的最早期限', () => {
+test('從已載入的帳本快照判斷回收資料是否到期', () => {
     const before = project();
+    assert.equal(bin.hasExpiredArchives(before.data, now), false);
     const first = bin.moveToBin(before, { kind: 'entry', collection: 'expenses', item: expense }, actor, 'delete-entry-token', now);
-    assert.equal(first.recycleBinNextExpiry, new Date(now + bin.RETENTION_MS).toISOString());
+    const expires = now + bin.RETENTION_MS;
+    assert.equal(bin.hasExpiredArchives(first.data, expires - 1), false);
+    assert.equal(bin.hasExpiredArchives(first.data, expires), true);
     const restored = bin.restore(first, 'delete-entry-token', actor, 'restore-entry-token', now + 1);
-    assert.equal(restored.recycleBinNextExpiry, null);
-    const pruned = bin.pruneExpired(first, now + bin.RETENTION_MS);
-    assert.equal(pruned.recycleBinNextExpiry, null);
+    assert.equal(bin.hasExpiredArchives(restored.data, expires), false);
+    const pruned = bin.pruneExpired(first, expires);
+    assert.equal(bin.hasExpiredArchives(pruned.data, expires), false);
     assert.equal(pruned.data.activityLog.length, first.data.activityLog.length);
 });

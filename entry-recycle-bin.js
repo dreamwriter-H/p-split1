@@ -68,21 +68,16 @@
         const explicit = Date.parse(entry.expiresAt);
         return Number.isFinite(explicit) ? Math.min(explicit, hardDeadline) : NaN;
     }
-    // Seven days is restore eligibility. This client prunes on access/write;
-    // the separately deployed scheduled function also cleans inactive projects.
-    function updateExpiryIndex(project) {
-        const times = (project.data?.recycleBin || []).map(archiveExpiry).filter(Number.isFinite);
-        project.recycleBinNextExpiry = times.length ? new Date(Math.min(...times)).toISOString() : null;
-        return project;
+    // Use the loaded project to decide whether an expiry cleanup needs a cloud read.
+    function hasExpiredArchives(data, now = Date.now()) {
+        const time = timestamp(now);
+        return Array.isArray(data?.recycleBin) && data.recycleBin.some(entry => time >= archiveExpiry(entry));
     }
     function pruneExpired(project, now = Date.now()) {
         const result = copy(project), time = timestamp(now);
         result.data = result.data || {};
-        if (Array.isArray(result.data.recycleBin)) result.data.recycleBin = result.data.recycleBin.filter(entry => {
-            const expires = archiveExpiry(entry);
-            return !Number.isFinite(expires) || time < expires;
-        });
-        return updateExpiryIndex(result);
+        if (Array.isArray(result.data.recycleBin)) result.data.recycleBin = result.data.recycleBin.filter(entry => !(time >= archiveExpiry(entry)));
+        return result;
     }
     function assertCapacity(project) {
         const bytes = new TextEncoder().encode(JSON.stringify(project)).length;
@@ -106,7 +101,7 @@
     function markUpdated(project, actor, now) {
         project.updatedAt = new Date(now).toISOString();
         project.lastUpdatedBy = actor.uid;
-        return assertCapacity(updateExpiryIndex(project));
+        return assertCapacity(project);
     }
     function archiveBase(actor, token, now) {
         const person = actorInfo(actor);
@@ -271,5 +266,5 @@
     }
 
     return { RETENTION_MS, MAX_DOCUMENT_BYTES, getDayNumbers, getDayLabel, daySnapshot,
-        pruneExpired, assertCapacity, moveToBin, restore, addDay, appendHistory };
+        hasExpiredArchives, pruneExpired, assertCapacity, moveToBin, restore, addDay, appendHistory };
 });

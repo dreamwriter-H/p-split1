@@ -1,5 +1,5 @@
 {
-  "sourceSha": "b94325593fededb56323b97d59e91230085511c66f463ac6813db6b53de0140a",
+  "sourceSha": "1120765d1c2ace13a6f8af587335c75231ed2dddcc31f562f6d9d3eb1ea66a29",
   "checks": [
     "Confirm initial focus/cycle/Escape cancel leaves entry unchanged",
     "One confirmed deletion removes entry once and saves one archive/delete event",
@@ -34,7 +34,7 @@
     "name": "回收桶實際 App 測試",
     "schemaVersion": "2.2.0",
     "createdAt": "2026-11-18T00:00:00Z",
-    "updatedAt": "2026-11-18T02:23:53.828Z",
+    "updatedAt": "2026-11-18T03:00:03.509Z",
     "data": {
       "name": "回收桶實際 App 測試",
       "people": [
@@ -66,7 +66,7 @@
             2
           ],
           "day": 1,
-          "id": "c5754beae8c085403980152581d3b52716494a4cc5e0a817"
+          "id": "946421d0b6d72a10cf752c27b945f52e0526a79e5e04b96e"
         },
         {
           "id": "lunch",
@@ -85,8 +85,8 @@
       ],
       "activityLog": [
         {
-          "id": "5a64a9ca5cb411752ae0c0d660bdbf05b91b33825ad4ec2e:expenses:lunch:delete",
-          "at": "2026-11-18T02:23:48.345Z",
+          "id": "01ff766ec02d8d90597c465290e3e1855ec6ce77b4367273:expenses:lunch:delete",
+          "at": "2026-11-18T02:59:58.062Z",
           "actorId": "fixture-user",
           "actorName": "測試成員",
           "action": "delete",
@@ -94,11 +94,11 @@
           "entryId": "lunch",
           "label": "測試午餐",
           "changedFields": [],
-          "archiveId": "5a64a9ca5cb411752ae0c0d660bdbf05b91b33825ad4ec2e"
+          "archiveId": "01ff766ec02d8d90597c465290e3e1855ec6ce77b4367273"
         },
         {
-          "id": "bb517a4b4f6c9fc1f3fd39dafb180d527aee9950a8b5cfe5:expenses:lunch:restore",
-          "at": "2026-11-18T02:23:48.571Z",
+          "id": "62a60243a0de30953cf200edb09d9d34e6d97d89f090df98:expenses:lunch:restore",
+          "at": "2026-11-18T02:59:58.266Z",
           "actorId": "fixture-user",
           "actorName": "測試成員",
           "action": "restore",
@@ -106,22 +106,22 @@
           "entryId": "lunch",
           "label": "測試午餐",
           "changedFields": [],
-          "archiveId": "5a64a9ca5cb411752ae0c0d660bdbf05b91b33825ad4ec2e"
+          "archiveId": "01ff766ec02d8d90597c465290e3e1855ec6ce77b4367273"
         },
         {
-          "id": "527ed90849b79f92d8347afa19c638e455acfa68e90ab4b6:expenses:c5754beae8c085403980152581d3b52716494a4cc5e0a817:create",
-          "at": "2026-11-18T02:23:49.906Z",
+          "id": "598e486811d1bf3391353a6d642fb15b314668f3be4d476e:expenses:946421d0b6d72a10cf752c27b945f52e0526a79e5e04b96e:create",
+          "at": "2026-11-18T02:59:59.605Z",
           "actorId": "fixture-user",
           "actorName": "測試成員",
           "action": "create",
           "collection": "expenses",
-          "entryId": "c5754beae8c085403980152581d3b52716494a4cc5e0a817",
+          "entryId": "946421d0b6d72a10cf752c27b945f52e0526a79e5e04b96e",
           "label": "不應遺失的草稿",
           "changedFields": []
         },
         {
           "id": "remote-delete:expenses:lunch:delete",
-          "at": "2026-11-18T02:23:51.492Z",
+          "at": "2026-11-18T03:00:01.285Z",
           "actorId": "other-editor",
           "actorName": "另一個成員",
           "action": "delete",
@@ -133,7 +133,7 @@
         },
         {
           "id": "remote-restore:expenses:lunch:restore",
-          "at": "2026-11-18T02:23:51.493Z",
+          "at": "2026-11-18T03:00:01.286Z",
           "actorId": "other-editor",
           "actorName": "另一個成員",
           "action": "restore",
@@ -144,8 +144,8 @@
           "archiveId": "remote-delete"
         },
         {
-          "id": "5df185e033ceaf8d754508c52b4434251dcad38167cbb511:expenses:lunch:edit",
-          "at": "2026-11-18T02:23:53.828Z",
+          "id": "16ecc57712d519724e8024724b4fae3f3afbb38b2d1c7112:expenses:lunch:edit",
+          "at": "2026-11-18T03:00:03.509Z",
           "actorId": "fixture-user",
           "actorName": "測試成員",
           "action": "edit",
@@ -159,13 +159,12 @@
       ],
       "recycleBin": []
     },
-    "recycleBinNextExpiry": null,
-    "recoveryWriteToken": "5df185e033ceaf8d754508c52b4434251dcad38167cbb511",
+    "recoveryWriteToken": "16ecc57712d519724e8024724b4fae3f3afbb38b2d1c7112",
     "recoveryWriteRevision": 5,
     "lastUpdatedBy": "fixture-user"
   },
   "staleEditor": {
-    "originalGen": "bb517a4b4f6c9fc1f3fd39dafb180d527aee9950a8b5cfe5",
+    "originalGen": "62a60243a0de30953cf200edb09d9d34e6d97d89f090df98",
     "restoredGen": "remote-restore",
     "latestAmount": 1400,
     "final": {

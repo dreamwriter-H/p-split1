@@ -16,7 +16,7 @@
     <script src="./receipt-ocr.js?v=2.2.0"></script>
     <script src="./receipt-item-parser.js?v=2.4.0-prod-r1"></script>
     <script src="./dining-trip-import.js?v=2.6.0-review-r1"></script>
-    <script src="./entry-recycle-bin.js?v=2.6.0-review-r1"></script>
+    <script src="./entry-recycle-bin.js?v=2.6.0-review-r2"></script>
     <script src="./recovery-panel.js?v=2.6.0-review-r1"></script>
     <link rel="stylesheet" href="./recovery-panel.css?v=2.6.0-review-r1">
 
@@ -100,7 +100,7 @@
         const db = getFirestore(app);
         const FIREBASE_APP_ID = 'spliteasy-2026';
         const APP_VERSION = '2.6.0-dev';
-        const BUILD_ID = 'v2.6.0-review-r1';
+        const BUILD_ID = 'v2.6.0-review-r2';
         // v2.2 正式版使用全新的資料空間與首頁索引，不載入任何舊版帳本。
         const DATA_SPACE = 'spliteasy-v2-2-prod';
         const USER_INDEX_SPACE = 'spliteasy-v2-2-prod';
@@ -2665,7 +2665,7 @@
                     ownerName: user.displayName || '',
                     createdAt: now,
                     updatedAt: now,
-                    recoveryWriteToken: createInviteToken(), recoveryWriteRevision: 1, recycleBinNextExpiry: null,
+                    recoveryWriteToken: createInviteToken(), recoveryWriteRevision: 1,
                     data: type === 'dining'
                         ? { title: '', date: now.split('T')[0], people: [{ id: 1, name: '', payerId: 1 }, { id: 2, name: '', payerId: 2 }], totalBill: '', serviceChargeType: 'percent', serviceChargeValue: 10, splitMode: 'even', customAmounts: {}, diningItems: [], billPayerId: 1, invoiceMeta: null }
                         : { name: '', days: 1, people: [{id: 1, name: '', payerId: 1}, {id: 2, name: '', payerId: 2}], expenses: [] }
@@ -2838,12 +2838,13 @@
                     await flushPendingProjectUpdate();
                     if (syncInFlightRef.current || pendingProjectUpdateRef.current?.operations?.length) throw new Error('還有尚未同步的修改，請先處理未同步草稿再試。');
                     if (auth.currentUser?.uid !== currentUser.uid || activeProjectRef.current?.id !== projectId) throw new Error('登入或帳本已變更，這次操作未執行。');
-                    const token = createInviteToken(), now = Date.now();
+                    const token = createInviteToken();
                     const committed = await runTransaction(db, async transaction => {
                         const ref = projectRefFor(projectId), snapshot = await transaction.get(ref);
                         if (!snapshot.exists()) throw new Error('找不到原本的帳本。');
                         if (auth.currentUser?.uid !== currentUser.uid) throw new Error('登入帳號已變更，這次操作未執行。');
                         const latest = snapshot.data(), api = window.EntryRecycleBin, actor = recoveryActor(currentUser);
+                        const now = Date.now();
                         const result = action === 'delete' ? api.moveToBin(latest, payload, actor, token, now)
                             : action === 'restore' ? api.restore(latest, payload, actor, token, now)
                             : api.addDay(latest, actor, token, now);
@@ -2922,28 +2923,38 @@
                     finally { recoveryBusyRef.current = false; setRecoveryBusy(false); }
                 } });
 
+            const hasActiveProject = activeProjectData?.id === currentProjectId;
             useEffect(() => {
-                if (!user || !currentProjectId || view !== 'activeProject') return;
+                if (!user || !currentProjectId || view !== 'activeProject' || !hasActiveProject) return;
                 let disposed = false;
+                let inFlight = false;
+                const bin = window.EntryRecycleBin;
+                const needsMaintenance = (project, now) => !project.recoveryWriteToken || bin.hasExpiredArchives(project.data, now);
                 const removeExpiredTrash = async () => {
+                    const current = activeProjectRef.current;
+                    if (disposed || inFlight || current?.id !== currentProjectId || auth.currentUser?.uid !== user.uid) return;
+                    if (!needsMaintenance(current, Date.now())) return;
+                    inFlight = true;
+                    const token = createInviteToken();
                     try {
                         await runTransaction(db, async transaction => {
                             const ref = projectRefFor(currentProjectId), snapshot = await transaction.get(ref);
-                            if (!snapshot.exists() || disposed) return;
-                            const latest = snapshot.data();
-                            const cleaned = window.EntryRecycleBin.pruneExpired(latest, Date.now());
-                            if (!latest.recoveryWriteToken || latest.recycleBinNextExpiry !== cleaned.recycleBinNextExpiry || !dataValuesEqual(latest.data?.recycleBin, cleaned.data?.recycleBin)) {
-                                cleaned.recoveryWriteToken = createInviteToken();
-                                cleaned.recoveryWriteRevision = (Number(latest.recoveryWriteRevision) || 0) + 1;
-                                transaction.set(ref, cleaned);
-                            }
+                            if (!snapshot.exists() || disposed || auth.currentUser?.uid !== user.uid) return;
+                            const latest = snapshot.data(), now = Date.now();
+                            if (!needsMaintenance(latest, now)) return;
+                            transaction.set(ref, {
+                                ...bin.pruneExpired(latest, now),
+                                recoveryWriteToken: token,
+                                recoveryWriteRevision: (Number(latest.recoveryWriteRevision) || 0) + 1
+                            });
                         });
                     } catch (error) { console.warn('回收桶清理將於下次連線重試：', error); }
+                    finally { inFlight = false; }
                 };
                 removeExpiredTrash();
                 const timer = window.setInterval(removeExpiredTrash, 60000);
                 return () => { disposed = true; window.clearInterval(timer); };
-            }, [user, currentProjectId, view]);
+            }, [user, currentProjectId, view, hasActiveProject]);
 
             const leaveActiveProject = async () => {
                 if (recoveryBusyRef.current || syncInFlightRef.current) return showMessage({ message: '帳目正在同步，請稍候再回首頁。' });
