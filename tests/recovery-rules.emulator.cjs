@@ -18,7 +18,7 @@ const space = 'apps/spliteasy-v2-2-prod/projects';
 const oldToken = 'recovery-token-before-0001';
 const newToken = 'recovery-token-after-00002';
 const nextRevision = 5;
-const google = { firebase: { sign_in_provider: 'google.com' } };
+const google = uid => ({ email: uid + '@example.test', email_verified: true, firebase: { sign_in_provider: 'google.com' } });
 const initialProject = {
     id: 'project', name: '規則測試', type: 'travel', ownerId: 'owner',
     schemaVersion: '2.2.0', createdAt: '2026-11-18T00:00:00.000Z',
@@ -33,6 +33,12 @@ async function main() {
     let passed = 0;
     try {
         await environment.clearFirestore();
+        await environment.withSecurityRulesDisabled(async context => {
+            const database = context.firestore();
+            for (const uid of ['owner', 'editor', 'outsider']) {
+                await setDoc(doc(database, 'apps/spliteasy-v2-2-prod/accessAccounts', uid), { email:google(uid).email, status:'approved' });
+            }
+        });
         const cases = [
             ['legacy project remains editable before migration', false, 'editor', p => ({ ...p, name: '舊版正常修改' }), true],
             ['legacy project can migrate to a recovery token', false, 'editor', p => ({ ...p, recoveryWriteToken: newToken, recoveryWriteRevision: 1 }), true],
@@ -71,15 +77,15 @@ async function main() {
                 await setDoc(doc(database, space, id, 'members', 'owner'), { role: 'owner' });
                 await setDoc(doc(database, space, id, 'members', 'editor'), { role: 'editor' });
             });
-            const database = actor ? environment.authenticatedContext(actor, google).firestore() : environment.unauthenticatedContext().firestore();
+            const database = actor ? environment.authenticatedContext(actor, google(actor)).firestore() : environment.unauthenticatedContext().firestore();
             const operation = setDoc(doc(database, space, id), transform(project));
             await (allowed ? assertSucceeds(operation) : assertFails(operation));
             console.log(`PASS ${name}`);
             passed++;
         }
 
-        const ownerDb = environment.authenticatedContext('owner', google).firestore();
-        const editorDb = environment.authenticatedContext('editor', google).firestore();
+        const ownerDb = environment.authenticatedContext('owner', google('owner')).firestore();
+        const editorDb = environment.authenticatedContext('editor', google('editor')).firestore();
         await assertSucceeds(getDoc(doc(editorDb, space, 'case-2')));
         console.log('PASS upgraded project remains readable by members'); passed++;
         await assertFails(getDocs(collection(editorDb, space)));
@@ -94,4 +100,4 @@ async function main() {
     }
 }
 
-main().catch(error => { console.error(error); process.exitCode = 1; });
+main().then(require('./member-access.emulator.cjs')).catch(error => { console.error(error); process.exitCode = 1; });

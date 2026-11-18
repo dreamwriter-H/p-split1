@@ -83,7 +83,7 @@
     <script type="text/babel" data-type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, GoogleAuthProvider, browserLocalPersistence, setPersistence, signInWithPopup, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, collection, doc, setDoc, getDoc, getDocs, onSnapshot, deleteDoc, writeBatch, runTransaction } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getFirestore, collection, doc, setDoc, getDoc, getDocFromServer, getDocs, onSnapshot, deleteDoc, updateDoc, writeBatch, runTransaction, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         const { useState, useEffect, useRef } = React;
 
@@ -100,12 +100,120 @@
         const auth = getAuth(app);
         const db = getFirestore(app);
         const FIREBASE_APP_ID = 'spliteasy-2026';
-        const APP_VERSION = '2.6.2';
-        const BUILD_ID = 'v2.6.2-prod-r1';
+        const APP_VERSION = '2.7.0';
+        const BUILD_ID = 'v2.7.0-prod-r1';
         // v2.2 正式版使用全新的資料空間與首頁索引，不載入任何舊版帳本。
         const DATA_SPACE = 'spliteasy-v2-2-prod';
         const USER_INDEX_SPACE = 'spliteasy-v2-2-prod';
         const DATA_SCHEMA_VERSION = '2.2.0';
+        const accessAccounts = collection(db, 'apps', DATA_SPACE, 'accessAccounts');
+        const accessAccount = uid => doc(accessAccounts, uid);
+        const accessOwner = doc(db, 'apps', DATA_SPACE, 'accessConfig', 'owner');
+
+        function useAppAccess(account, retry) {
+            const [access, setAccess] = useState(null);
+            useEffect(() => {
+                if (!account) { setAccess(null); return; }
+                let active = true;
+                let unsubscribe = () => {};
+                const ref = accessAccount(account.uid);
+                const update = (status, isOwner = false) => {
+                    if (!active) return;
+                    setAccess(current => current?.uid === account.uid && current.status === status && current.isOwner === isOwner ? current : { uid: account.uid, status, isOwner });
+                };
+                update('checking');
+                (async () => {
+                    const ownerCheck = getDocFromServer(accessOwner).then(snap => snap.exists(), error => {
+                        if (error.code === 'permission-denied') return false;
+                        throw error;
+                    });
+                    const record = runTransaction(db, async transaction => {
+                        const snapshot = await transaction.get(ref);
+                        const activity = { name: (account.displayName || '').slice(0, 120), lastSeenAt: serverTimestamp() };
+                        if (snapshot.exists()) transaction.update(ref, activity);
+                        else transaction.set(ref, { ...activity, email: account.email.toLowerCase(), status: 'pending', firstSeenAt: serverTimestamp() });
+                    });
+                    const [isOwner] = await Promise.all([ownerCheck, record]);
+                    if (!active) return;
+                    unsubscribe = onSnapshot(ref, { includeMetadataChanges: true }, snapshot => {
+                        if (snapshot.metadata.fromCache || snapshot.metadata.hasPendingWrites) return;
+                        const status = snapshot.data()?.status;
+                        update(isOwner ? 'approved' : ['pending', 'approved', 'blocked'].includes(status) ? status : 'error', isOwner);
+                    }, () => update('error'));
+                })().catch(() => update('error'));
+                return () => { active = false; unsubscribe(); };
+            }, [account, retry]);
+            return access?.uid === account?.uid ? access : null;
+        }
+
+        function AccessWaitScreen({ status, email, onRetry, onLogout }) {
+            const message = {
+                checking: ['確認使用資格', '正在核對你的帳號，請稍候。'],
+                pending: ['等待管理者核准', '你的帳號已送出申請。請聯絡管理者，核准後就可以建立或加入帳本。'],
+                blocked: ['帳號已停用', '若要恢復使用，請聯絡管理者。'],
+                error: ['暫時無法確認使用資格', '請確認網路後再試一次。']
+            }[status];
+            return <main className="min-h-screen max-w-md mx-auto flex items-center justify-center px-5">
+                <section className="bg-white border border-slate-200 rounded-3xl shadow-sm w-full p-6" aria-live="polite">
+                    <h1 className="font-black text-xl text-slate-900">{message[0]}</h1>
+                    <p className="text-sm text-slate-600 mt-2 leading-relaxed">{message[1]}</p>
+                    <p className="text-xs text-slate-500 mt-4 break-all">{email}</p>
+                    <div className="flex flex-wrap gap-3 mt-5">
+                        {status === 'error' && <button type="button" onClick={onRetry} className="bg-blue-700 rounded-xl text-white px-4 py-2 font-bold">重試</button>}
+                        <button type="button" onClick={onLogout} className="rounded-xl border border-slate-300 px-4 py-2 font-bold text-slate-700">換帳號</button>
+                    </div>
+                </section>
+            </main>;
+        }
+
+        function AppAccessManager({ ownerUid, onBack, confirm }) {
+            const [rows, setRows] = useState(null);
+            const [notice, setNotice] = useState('');
+            const [busy, setBusy] = useState('');
+            const labels = { pending: '待核准', approved: '已開通', blocked: '已停用' };
+            useEffect(() => onSnapshot(accessAccounts, snapshot => {
+                const rank = row => row.id === ownerUid ? 0 : row.status === 'pending' ? 1 : row.status === 'approved' ? 2 : 3;
+                const accounts = snapshot.docs.map(item => ({ ...item.data(), id: item.id }));
+                accounts.sort((a, b) => rank(a) - rank(b) || ((b.lastSeenAt?.toMillis() || 0) - (a.lastSeenAt?.toMillis() || 0)));
+                setRows(accounts);
+            }, () => { setRows([]); setNotice('目前無法載入帳號。請返回首頁後再試。'); }), [ownerUid]);
+            const stamp = time => time ? time.toDate().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei', hour12: false }) : '同步中';
+            const change = async (row, status) => {
+                setBusy(row.id);
+                setNotice('');
+                try {
+                    await updateDoc(accessAccount(row.id), { status, statusChangedAt: serverTimestamp() });
+                    setNotice(status === 'approved' ? '已開通帳號。' : '已停用帳號。');
+                } catch { setNotice('無法更新資格，請稍後再試。'); }
+                finally { setBusy(''); }
+            };
+            const block = row => confirm({
+                type: 'confirm', title: '停用這個帳號？',
+                message: (row.name || row.email) + ' 將無法建立或加入帳本，也無法繼續讀寫已加入的帳本。',
+                confirmText: '確定停用', onConfirm: () => change(row, 'blocked')
+            });
+            return <section className="px-4 pb-6 pt-5">
+                <button type="button" onClick={onBack} className="text-blue-700 flex items-center gap-2 font-bold mb-3 py-2"><i aria-hidden="true" className="fa-solid fa-arrow-left"></i> 回首頁</button>
+                <h1 className="text-2xl font-black text-slate-900">帳號管理</h1>
+                <p className="text-sm text-slate-600 mt-2 mb-4">查看曾進入 App 的 Google 帳號。核准後才能建立或加入帳本。</p>
+                {notice && <p role="status" className="mb-3 text-sm text-blue-800 bg-blue-50 px-3 py-2 rounded-xl">{notice}</p>}
+                {rows === null ? <p role="status" className="text-sm text-slate-600">正在載入帳號…</p> : <ul className="space-y-3">
+                    {rows.map(row => <li key={row.id} className="rounded-2xl bg-white border border-slate-200 p-4">
+                        <div className="flex justify-between items-start gap-3">
+                            <div className="min-w-0"><p className="font-bold text-slate-900 break-words">{row.name || row.email}</p><p className="text-xs text-slate-600 break-all">{row.email}</p></div>
+                            <span className="text-xs bg-slate-100 text-slate-800 rounded-full px-2 py-1 shrink-0">{row.id === ownerUid ? '管理者' : labels[row.status]}</span>
+                        </div>
+                        <p className="text-xs text-slate-600 mt-3">首次開啟 {stamp(row.firstSeenAt)}</p>
+                        <p className="text-xs text-slate-600 mt-1">最近開啟 {stamp(row.lastSeenAt)}</p>
+                        {row.id !== ownerUid && <div className="flex flex-wrap gap-2 mt-3">
+                            {row.status !== 'approved' && <button type="button" disabled={!!busy} onClick={() => change(row, 'approved')} className="bg-blue-700 text-white rounded-xl px-3 py-2 font-bold text-sm disabled:opacity-60">{row.status === 'blocked' ? '恢復使用' : '核准'}</button>}
+                            {row.status !== 'blocked' && <button type="button" disabled={!!busy} onClick={() => block(row)} className="border border-slate-300 rounded-xl px-3 py-2 font-bold text-sm text-slate-700 disabled:opacity-60">停用</button>}
+                        </div>}
+                    </li>)}
+                </ul>}
+            </section>;
+        }
+
         const projectRefFor = (projectId) => doc(db, 'apps', DATA_SPACE, 'projects', projectId);
         const memberRefFor = (projectId, uid) => doc(db, 'apps', DATA_SPACE, 'projects', projectId, 'members', uid);
         const inviteRefFor = (projectId, inviteId) => doc(db, 'apps', DATA_SPACE, 'projects', projectId, 'invites', inviteId);
@@ -1013,14 +1121,14 @@
                     <h1 className="brand-login-logo"><img src="./assets/brand/aa-2gether-logo.webp" className="brand-logo" alt="A.A 2GETHER" /></h1>
                     <p className="brand-login-tagline">數學不好，錢算得清楚就好</p>
                     <p className="text-slate-500 mt-2">登入後，只會看到你建立或朋友分享給你的記帳專案。</p>
-                    {hasInvite && <div className="mt-4 p-3 bg-amber-50 text-amber-700 rounded-xl text-sm font-bold"><i className="fa-solid fa-envelope-open-text mr-2"></i>登入後就會加入朋友的共編專案</div>}
+                    {hasInvite && <div className="mt-4 p-3 bg-amber-50 text-amber-700 rounded-xl text-sm font-bold"><i className="fa-solid fa-envelope-open-text mr-2"></i>管理者核准後即可加入朋友的共編專案</div>}
                     {error && <div className="mt-4 p-3 bg-red-50 text-red-600 rounded-xl text-sm text-left">{error}</div>}
                     <button onClick={onLogin} disabled={isLoggingIn} className="w-full mt-6 p-4 rounded-xl border brand-login-button font-bold flex items-center justify-center gap-3 disabled:opacity-60">
                         {isLoggingIn ? <i className="fa-solid fa-spinner fa-spin text-teal-600"></i> : <i className="fa-brands fa-google"></i>}
                         {isLoggingIn ? '正在開啟 Google…' : '使用 Google 帳號登入'}
                     </button>
                     <p className="mt-3 text-xs text-blue-800 bg-blue-50 rounded-xl p-3"><i className="fa-solid fa-window-restore mr-2"></i>將開啟 Google 安全登入視窗；若視窗未出現，請改用外部 Chrome／Safari。</p>
-                    <p className="mt-5 text-xs text-slate-400 leading-relaxed">Google 登入只用來辨認「哪些專案屬於你」。我們不會取得你的 Google 密碼。</p>
+                    <p className="mt-5 text-xs text-slate-400 leading-relaxed">登入用於辨識你的帳號與使用資格。管理者可以查看你在 App 的登入帳號與開啟時間。</p>
                     <div className="mt-3"><VersionBadge /></div>
                 </div>
                 </div>
@@ -2305,7 +2413,11 @@
             const [projectsLoading, setProjectsLoading] = useState(false);
             const [activeProjectData, setActiveProjectData] = useState(null);
             const [currentProjectId, setCurrentProjectId] = useState(null);
-            const [user, setUser] = useState(null);
+            const [signedInUser, setSignedInUser] = useState(null);
+            const [accessRetry, setAccessRetry] = useState(0);
+            const access = useAppAccess(signedInUser, accessRetry);
+            const user = access?.status === 'approved' ? signedInUser : null;
+            const isAppOwner = Boolean(user && access.isOwner);
             const [dialog, setDialog] = useState(null);
             const [shareInvite, setShareInvite] = useState(null);
             const [showCollaborationManager, setShowCollaborationManager] = useState(false);
@@ -2351,24 +2463,14 @@
                         const isGoogleAccount = nextUser?.providerData?.some(provider => provider.providerId === 'google.com');
                         if (nextUser && (nextUser.isAnonymous || !isGoogleAccount)) {
                             signOut(auth).catch(error => console.warn('清除舊匿名登入失敗：', error));
-                            setUser(null);
+                            setSignedInUser(null);
                             setAuthReady(true);
                             setShowSplash(false);
                             return;
                         }
-                        setUser(nextUser);
+                        setSignedInUser(nextUser);
                         setAuthReady(true);
                         setShowSplash(false);
-                        if (!nextUser) {
-                            setProjects([]);
-                            setActiveProjectData(null);
-                            setCurrentProjectId(null);
-                            setShowCollaborationManager(false);
-                            setProjectIndexWarning('');
-                            processedInviteRef.current = false;
-                            ensuredIndexKeysRef.current.clear();
-                            setView('projectList');
-                        }
                     });
                 };
                 initializeAuth();
@@ -2384,6 +2486,24 @@
                     unsubscribe();
                 };
             }, []);
+
+            useEffect(() => {
+                if (user) return;
+                if (debounceTimer.current) clearTimeout(debounceTimer.current);
+                pendingProjectUpdateRef.current = null;
+                setDialog(null);
+                setShareInvite(null);
+                setShowRecovery(false);
+                setSyncConflict(null);
+                setProjects([]);
+                setActiveProjectData(null);
+                setCurrentProjectId(null);
+                setShowCollaborationManager(false);
+                setProjectIndexWarning('');
+                processedInviteRef.current = false;
+                ensuredIndexKeysRef.current.clear();
+                setView('projectList');
+            }, [user, signedInUser?.uid]);
 
             const handleGoogleLogin = async () => {
                 setIsLoggingIn(true);
@@ -3119,7 +3239,8 @@
             };
 
             if (showSplash || !authReady || !splashHoldComplete) return <SplashScreen />;
-            if (!user) return <LoginScreen onLogin={handleGoogleLogin} isLoggingIn={isLoggingIn} error={authError} hasInvite={hasPendingInvite} />;
+            if (!signedInUser) return <LoginScreen onLogin={handleGoogleLogin} isLoggingIn={isLoggingIn} error={authError} hasInvite={hasPendingInvite} />;
+            if (!user) return <AccessWaitScreen status={access?.status || 'checking'} email={signedInUser.email} onRetry={() => setAccessRetry(value => value + 1)} onLogout={() => signOut(auth).catch(() => setAccessRetry(value => value + 1))} />;
 
             return (
                 <div className="min-h-screen">
@@ -3143,10 +3264,11 @@
                         ) : (
                             <div className="flex items-center gap-2">
                                 {user.photoURL ? <img src={user.photoURL} alt="Google 帳號頭像" className="w-8 h-8 rounded-full" referrerPolicy="no-referrer" /> : <div className="w-8 h-8 rounded-full bg-teal-100 text-teal-600 flex items-center justify-center"><i className="fa-solid fa-user"></i></div>}
-                                <div className="max-w-[150px] text-right leading-tight">
+                                <div className="max-w-[88px] sm:max-w-[150px] text-right leading-tight">
                                     <p className="text-[11px] font-bold text-slate-600 truncate" title={user.email || ''}>{user.email || user.displayName}</p>
                                     <p className="text-[9px] text-slate-400">UID …{user.uid.slice(-6)}</p>
                                 </div>
+                                {isAppOwner && view === 'projectList' && <button type="button" onClick={() => setView('accessManagement')} className="rounded-xl bg-blue-50 px-3 py-2 text-blue-800 text-xs font-bold whitespace-nowrap" aria-label="帳號管理"><i className="fa-solid fa-user-gear mr-1" aria-hidden="true"></i>帳號管理</button>}
                                 <button onClick={handleSignOut} aria-label="登出" className="p-2 text-slate-400 hover:text-red-500"><i className="fa-solid fa-arrow-right-from-bracket"></i></button>
                             </div>
                         )}
@@ -3157,6 +3279,7 @@
                     <main inert={recoveryBusy ? '' : undefined} className="aa-main max-w-md mx-auto min-h-[calc(100vh-60px)] relative bg-slate-50">
                         {view === 'activeProject' && activeProjectData && <div className="aa-recovery-toolbar px-4 py-2 flex justify-end"><button type="button" className="px-3 py-2 rounded-xl bg-blue-50 text-blue-700 text-xs font-bold" onClick={() => setShowRecovery(true)}><i className="fa-solid fa-clock-rotate-left mr-2" aria-hidden="true"></i>回收桶與紀錄</button></div>}
                         {view === 'activeProject' && syncConflict?.projectId === currentProjectId && <div role="alert" className="m-4 p-4 bg-amber-50 border border-amber-200 rounded-xl text-sm"><p className="font-bold">有修改尚未同步</p><p className="my-2">{syncConflict.message}</p><div className="flex flex-wrap gap-2"><button className="p-2 border rounded-lg" onClick={downloadPendingDraft}>下載未同步修改</button><button className="p-2 border rounded-lg" onClick={requestDiscardConflictingDraft}>捨棄草稿並載入最新</button></div></div>}
+                        {view === 'accessManagement' && isAppOwner && <AppAccessManager ownerUid={user.uid} onBack={() => setView('projectList')} confirm={setDialog} />}
                         {view === 'projectList' && <ProjectList projects={projects} isLoading={projectsLoading} warning={projectIndexWarning} onSelect={(id) => { const selected = projects.find(project => project.id === id); if (selected?.accessPending) { setProjectsLoading(true); setProjectListRetryRevision(revision => revision + 1); setDialog({ type: 'alert', title: '正在重新確認', message: '這筆首頁索引仍保留。系統正在重新確認登入與專案權限，請稍後再點一次。' }); return; } setCurrentProjectId(id); setActiveProjectData(selected || null); setView('activeProject'); }} onCreate={() => setView('createProject')} onRemove={handleRemoveProject} />}
                         {view === 'createProject' && <CreateProjectScreen onCancel={() => setView('projectList')} onCreate={createProject} showMessage={showMessage} />}
                         {view === 'activeProject' && !activeProjectData && <div className="py-20 text-center text-slate-400"><i className="fa-solid fa-spinner fa-spin text-2xl"></i><p className="mt-3 text-sm">正在載入共編專案…</p></div>}
