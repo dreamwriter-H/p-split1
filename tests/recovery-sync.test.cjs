@@ -58,13 +58,30 @@ test('舊畫面新增支出不能寫進已刪天數，其他存活天數仍可�
 
 test('一般畫面同步不能寫回舊回收桶、歷程與日序，也不能直接硬刪帳目', () => {
     const before = project();
-    const metadataOnly = build(before.data, { ...before.data, recycleBin: [], activityLog: [], dayOrder: [1], daySequence: 1, days: 1 });
+    const metadataOnly = build(before.data, { ...before.data, recycleBin: [], activityLog: [], historyGuards: {}, dayOrder: [1], daySequence: 1, days: 1 });
     assert.deepEqual(plain(metadataOnly), []);
     const deleted = bin.moveToBin(before, { kind: 'day', snapshot: bin.daySnapshot(before.data, 2) }, actor, 'delete-day-token', now);
     const injected = [{ type: 'data-field', key: 'recycleBin', value: [] }, { type: 'data-field', key: 'dayOrder', value: [1, 2, 3] }];
     assert.deepEqual(plain(apply(deleted.data, injected).recycleBin), deleted.data.recycleBin);
     assert.deepEqual(plain(apply(deleted.data, injected).dayOrder), [1, 3]);
     assert.throws(() => validate(before, build(before.data, { ...before.data, expenses: [] })), /回收桶/);
+});
+
+test('清理舊修改紀錄後，一般同步仍不能復活曾刪除的品項或覆寫保護資訊', () => {
+    const owner = { uid: 'owner', name: '擁有者' };
+    const before = { ...project(), ownerId: owner.uid };
+    const trashed = bin.moveToBin(before, { kind: 'entry', collection: 'expenses', item: expense }, owner, 'old-delete', now);
+    const later = now + bin.HISTORY_KEEP_MS + 1;
+    const cleaned = bin.clearHistory(trashed, bin.getHistoryCleanupIds(trashed.data, later), owner, later);
+    assert.deepEqual(cleaned.data.activityLog, []);
+    const stale = [
+        { type: 'data-field', key: 'historyGuards', value: {} },
+        { type: 'entity-upsert', key: 'expenses', id: expense.id, value: expense }
+    ];
+    const applied = apply(cleaned.data, stale);
+    assert.deepEqual(plain(applied.historyGuards), cleaned.data.historyGuards);
+    assert.deepEqual(plain(applied.expenses), []);
+    assert.throws(() => validate(cleaned, stale), /曾被刪除/);
 });
 
 test('ID碰撞不會覆蓋既有帳目，彼此編輯不同欄位仍可合併並記錄實際修改', () => {

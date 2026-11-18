@@ -6,6 +6,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const api = require('../entry-recycle-bin.js');
 const { moveToBin, restore, addDay, appendHistory, pruneExpired, getDayNumbers, getDayLabel, daySnapshot, RETENTION_MS, assertCapacity } = api;
+const { clearHistory, getHistoryCleanupIds, hasDeletedEntry, HISTORY_KEEP_MS } = api;
 const now = Date.parse('2026-11-18T08:00:00.000Z');
 const actor = { uid: 'editor-1', name: '小安' };
 const clone = value => structuredClone(value);
@@ -125,8 +126,7 @@ test('整天刪除保留穩定槽位、完整帳目與個別刪除事件', () =>
     assert.equal(archive.beforeDay, 1); assert.equal(archive.afterDay, 3);
     assert.deepEqual(archive.originalDayOrder, [1, 2, 3]);
     assert.deepEqual(archive.expenses, [project.data.expenses[1]]);
-    assert.equal(result.data.activityLog.filter(row => row.action === 'delete-day').length, 1);
-    assert.equal(result.data.activityLog.filter(row => row.action === 'delete').length, 1);
+    assert.deepEqual(result.data.activityLog.map(row => [row.collection, row.action, row.entryId]), [['expenses', 'delete', 'e2']]);
     assert.deepEqual(project, before);
 });
 
@@ -150,6 +150,7 @@ test('只有一天時不能刪除；多天的空白天仍可刪除與還原', ()
     const restored = restore(result, 'empty', actor, 'empty-restore', now + 1);
     assert.deepEqual(restored.data.dayOrder, [1, 2, 3]);
     assert.deepEqual(restored.data.expenses, []);
+    assert.deepEqual(restored.data.activityLog || [], []);
 });
 
 test('刪中間日後新增使用新槽位，還原插回下一原始anchor之前且保留新增日', () => {
@@ -231,15 +232,58 @@ test('一般歷程涵蓋新增、改名、零元金額、刪除與操作者；�
     assert.equal(result.updatedAt, logs[0].at);
 });
 
-test('設定、成員、均攤總額、各付各的金額皆記錄，canonical同值不誤記', () => {
+test('店名、成員、共同錢包與結算設定可以儲存，但只記錄實際品項異動', () => {
     const before = dining(), after = clone(before);
     after.data.title = '新聚餐'; after.data.totalBill = 0; after.data.customAmounts = { 2: 200, 1: 0 };
-    after.data.people[0].name = '新名字'; after.data.serviceChargeValue = 10;
+    after.data.people[0].name = '新名字'; after.data.people[0].payerId = 2; after.data.serviceChargeValue = 10;
     const result = appendHistory(before, after, actor, 'settings', now);
-    const log = result.data.activityLog.find(row => row.collection === 'settings');
-    for (const label of ['活動名稱', '帳單總額', '個人套餐金額', '成員與共同錢包', '服務費']) assert.ok(log.changedFields.includes(label));
-    const reorder = clone(before); reorder.data.customAmounts = { 2: 200, 1: 100 };
-    assert.equal(appendHistory(before, reorder, actor, 'order', now).data.activityLog.length, 0);
+    assert.deepEqual(result.data, { ...after.data, activityLog: [], recycleBin: [] });
+    after.data.diningItems[0].amount = 50;
+    const edited = appendHistory(before, after, actor, 'item-plus-settings', now);
+    assert.deepEqual(edited.data.activityLog.map(row => [row.collection, row.entryId, row.changedFields]), [['diningItems', 'food', ['金額']]]);
+});
+
+test('由擁有者清理已確認的舊紀錄與舊設定，保留剛滿48小時、並行新增、帳目與回收桶', () => {
+    const original = trip(), owner = { uid: original.ownerId, name: '擁有者' };
+    const archived = moveToBin(original, request(original.data.expenses[0]), actor, 'old-archive', now - HISTORY_KEEP_MS - 1);
+    const at = millis => new Date(millis).toISOString();
+    archived.data.activityLog.push(
+        { id: 'boundary', collection: 'expenses', action: 'edit', at: at(now - HISTORY_KEEP_MS) },
+        { id: 'recent', collection: 'expenses', action: 'create', at: at(now - 1) },
+        { id: 'legacy-settings', collection: 'settings', action: 'edit', at: at(now - 1) }
+    );
+    const ids = getHistoryCleanupIds(archived.data, now);
+    assert.deepEqual(ids, ['old-archive:expenses:e1:delete', 'legacy-settings']);
+    const concurrent = { id: 'later-added', collection: 'expenses', action: 'edit', at: at(now - HISTORY_KEEP_MS - 5) };
+    archived.data.activityLog.push(concurrent);
+    const snapshot = clone(archived);
+    assert.throws(() => clearHistory(archived, ids, actor, now), /只有帳本擁有者/);
+    const cleaned = clearHistory(archived, [...ids, 'boundary', 'recent'], owner, now);
+    assert.deepEqual(cleaned.data.activityLog.map(row => row.id), ['boundary', 'recent', concurrent.id]);
+    assert.deepEqual(cleaned.data.expenses, archived.data.expenses);
+    assert.deepEqual(cleaned.data.recycleBin, archived.data.recycleBin);
+    assert.deepEqual(archived, snapshot);
+    assert.ok(hasDeletedEntry(cleaned.data, 'expenses', 'e1'));
+    assert.equal(clearHistory(cleaned, ids, owner, now), cleaned);
+    const restored = restore(cleaned, 'old-archive', actor, 'restore-after-cleanup', now + 1);
+    assert.equal(restored.data.expenses.find(item => item.id === 'e1').amount, 100);
+    assert.ok(restored.data.activityLog.some(row => row.action === 'restore' && row.entryId === 'e1'));
+});
+
+test('清理舊版日程紀錄後仍拒絕重送日程或重新合併已還原回收項目', () => {
+    const owner = { uid: 'owner', name: '擁有者' };
+    const archived = deleted();
+    const restored = restore(archived, 'archive-entry', actor, 'restore-before-cleanup', now + 1);
+    // Previous app versions only had history rows for these guards.
+    delete restored.data.historyGuards;
+    restored.data.activityLog.push({ id: 'legacy-day:days:4:add-day', action: 'add-day', collection: 'days', at: new Date(now).toISOString() });
+    const later = now + HISTORY_KEEP_MS + 2;
+    const cleaned = clearHistory(restored, getHistoryCleanupIds(restored.data, later), owner, later);
+    assert.deepEqual(cleaned.data.activityLog, []);
+    assert.throws(() => addDay(cleaned, actor, 'legacy-day', later), /已完成/);
+    const stale = clone(cleaned);
+    stale.data.recycleBin = archived.data.recycleBin;
+    assert.deepEqual(appendHistory(cleaned, stale, actor, 'stale-recycle', later).data.recycleBin, []);
 });
 
 test('保留既有歷程與回收桶；同token事件去重，不記錄純generation變更', () => {

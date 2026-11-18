@@ -6,6 +6,7 @@
 })(typeof globalThis !== 'undefined' ? globalThis : this, function () {
     'use strict';
     const RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
+    const HISTORY_KEEP_MS = 2 * 24 * 60 * 60 * 1000;
     const MAX_DOCUMENT_BYTES = 850000;
     const copy = value => JSON.parse(JSON.stringify(value));
     const fail = message => { throw new Error(message); };
@@ -98,6 +99,59 @@
         if (!log.some(row => row.id === eventId)) log.push({ id: eventId, at: new Date(now).toISOString(), ...actorInfo(actor), ...event });
         project.data.activityLog = log;
     }
+    const deletedEntryKey = (collection, id) => `${collection}:${id}`;
+    const itemActions = new Set(['create', 'edit', 'delete', 'restore']);
+    const isItemHistory = event => (event?.collection === 'expenses' || event?.collection === 'diningItems')
+        && itemActions.has(event.action);
+    function getHistoryCleanupIds(data, now = Date.now()) {
+        const cutoff = timestamp(now) - HISTORY_KEEP_MS;
+        return (data?.activityLog || [])
+            .filter(event => !isItemHistory(event) || Date.parse(event.at) < cutoff)
+            .map(event => event.id);
+    }
+    function rememberHistoryGuard(data, group, id) {
+        const guards = data.historyGuards || {};
+        const entries = guards[group] || [];
+        if (!entries.includes(id)) data.historyGuards = { ...guards, [group]: [...entries, id] };
+    }
+    function hasDeletedEntry(data, collection, id) {
+        return (data.historyGuards?.deletedEntries || []).includes(deletedEntryKey(collection, id))
+            || (data.activityLog || []).some(event => event.action === 'delete' && event.collection === collection && sameId(event.entryId, id));
+    }
+    function clearHistory(project, confirmedIds, actor, now = Date.now()) {
+        if (project?.ownerId !== actorInfo(actor).actorId) fail('只有帳本擁有者可以清除修改紀錄。');
+        const history = project.data?.activityLog || [];
+        const eligible = new Set(getHistoryCleanupIds(project.data, now));
+        const selected = new Set(confirmedIds.filter(id => eligible.has(id)));
+        if (!history.some(event => selected.has(event.id))) return project;
+
+        const result = copy(project), data = result.data;
+        const previous = data.historyGuards || {};
+        const deletedEntries = new Set(previous.deletedEntries || []);
+        const restoredArchives = new Set(previous.restoredArchives || []);
+        const addedDayTokens = new Set(previous.addedDayTokens || []);
+        // Drop the user-visible record while retaining identifiers needed for safe sync and retries.
+        data.activityLog = data.activityLog.filter(event => {
+            if (!selected.has(event.id)) return true;
+            if (event.action === 'delete' && isItemHistory(event) && event.entryId != null) {
+                deletedEntries.add(deletedEntryKey(event.collection, event.entryId));
+            }
+            if (event.action === 'restore' && event.archiveId) restoredArchives.add(event.archiveId);
+            if (event.action === 'add-day' && typeof event.id === 'string') {
+                const end = event.id.lastIndexOf(':days:');
+                if (end > 0) addedDayTokens.add(event.id.slice(0, end));
+            }
+            return false;
+        });
+        if (deletedEntries.size || restoredArchives.size || addedDayTokens.size) {
+            data.historyGuards = {
+                deletedEntries: [...deletedEntries],
+                restoredArchives: [...restoredArchives],
+                addedDayTokens: [...addedDayTokens]
+            };
+        }
+        return markUpdated(result, actor, timestamp(now));
+    }
     function markUpdated(project, actor, now) {
         project.updatedAt = new Date(now).toISOString();
         project.lastUpdatedBy = actor.uid;
@@ -164,7 +218,6 @@
             data.dayOrder = order.filter(value => value !== day);
             data.days = Math.max(...data.dayOrder);
             data.daySequence = sequence;
-            addEvent(result, actor, state.token, state.now, { action: 'delete-day', collection: 'days', day, label: archive.label, changedFields: [], archiveId: state.token });
             for (const item of current.expenses) addEvent(result, actor, state.token, state.now, { action: 'delete', collection: 'expenses', entryId: item.id, label: itemLabel(item), changedFields: [], archiveId: state.token, day });
         } else fail('不支援的刪除操作。');
         data.recycleBin = [...(data.recycleBin || []), archive];
@@ -209,17 +262,18 @@
             data.days = Math.max(...order);
             data.daySequence = sequence;
             data.expenses = [...(data.expenses || []), ...copy(items).map(item => ({ ...item, _recoveryGeneration: state.token }))];
-            addEvent(result, actor, state.token, state.now, { action: 'restore', collection: 'days', day, label: archive.label, changedFields: [], archiveId: token });
             for (const item of items) addEvent(result, actor, state.token, state.now, { action: 'restore', collection: 'expenses', entryId: item.id, label: itemLabel(item), changedFields: [], archiveId: token, day });
         } else fail('回收紀錄格式不支援，請聯絡管理者。');
         data.recycleBin = data.recycleBin.filter(entry => entry.id !== token);
+        rememberHistoryGuard(data, 'restoredArchives', token);
         return markUpdated(result, actor, state.now);
     }
 
     function addDay(project, actor, token, now = Date.now()) {
         const state = prepare(project, actor, token, now), result = state.project;
         if (result.type !== 'travel') fail('只有旅遊專案可以新增日程。');
-        if ((result.data.activityLog || []).some(event => event.action === 'add-day' && event.id.startsWith(state.token + ':days:'))) fail('這次新增日程已完成，請重新確認畫面。');
+        if (result.data.historyGuards?.addedDayTokens?.includes(state.token)
+            || (result.data.activityLog || []).some(event => event.action === 'add-day' && event.id.startsWith(state.token + ':days:'))) fail('這次新增日程已完成，請重新確認畫面。');
         // Include not-yet-pruned legacy archives so an expired high slot is never reused.
         const sequence = Math.max(preserveSequence(result.data), preserveSequence(project.data));
         const day = sequence + 1;
@@ -227,22 +281,20 @@
         result.data.dayOrder = [...getDayNumbers(result.data), day];
         result.data.days = Math.max(...result.data.dayOrder);
         result.data.daySequence = day;
-        addEvent(result, actor, state.token, state.now, { action: 'add-day', collection: 'days', day, label: `第 ${result.data.dayOrder.length} 天`, changedFields: [] });
+        rememberHistoryGuard(result.data, 'addedDayTokens', state.token);
         return markUpdated(result, actor, state.now);
     }
 
-    const fieldLabels = { desc: '名稱', name: '名稱', title: '活動名稱', amount: '金額', day: '所屬天數', payers: '付款人',
-        splitBetween: '分攤成員', splitAmounts: '個人負擔', participantIds: '分攤成員', receiptMeta: '收據資料', diningImport: '聚餐匯入資料',
-        people: '成員與共同錢包', totalBill: '帳單總額', customAmounts: '個人套餐金額', serviceChargeType: '服務費類型',
-        serviceChargeValue: '服務費', splitMode: '分攤方式', billPayerId: '付款代表', date: '日期', invoiceMeta: '發票資料',
-        days: '旅遊天數', dayOrder: '旅遊日程', daySequence: '旅遊日程序號', travelImport: '旅遊匯入紀錄' };
+    const fieldLabels = { desc: '名稱', name: '名稱', amount: '金額', day: '所屬天數', payers: '付款人',
+        splitBetween: '分攤成員', splitAmounts: '個人負擔', participantIds: '分攤成員', receiptMeta: '收據資料', diningImport: '聚餐匯入資料' };
     const changedFields = (before = {}, after = {}) => [...new Set([...Object.keys(before), ...Object.keys(after)])]
         .filter(key => key !== 'id' && key !== '_recoveryGeneration' && stable(before[key]) !== stable(after[key])).map(key => fieldLabels[key] || key);
     function appendHistory(previousProject, nextProject, actor, token, now = Date.now()) {
         const state = prepare(nextProject, actor, token, now), result = state.project;
         const before = previousProject.data || {}, after = result.data;
         after.activityLog = mergeRecords(before.activityLog, after.activityLog);
-        const restoredIds = new Set(after.activityLog.filter(event => event.action === 'restore' && event.archiveId).map(event => event.archiveId));
+        const restoredIds = new Set([...(before.historyGuards?.restoredArchives || []),
+            ...after.activityLog.filter(event => event.action === 'restore' && event.archiveId).map(event => event.archiveId)]);
         after.recycleBin = mergeRecords(before.recycleBin, after.recycleBin).filter(entry => !restoredIds.has(entry.id) && (!Number.isFinite(archiveExpiry(entry)) || state.now < archiveExpiry(entry)));
         for (const collection of ['expenses', 'diningItems']) {
             const oldMap = new Map((before[collection] || []).map(item => [String(item.id), item]));
@@ -259,12 +311,10 @@
                 addEvent(result, actor, state.token, state.now, event);
             }
         }
-        const ignored = new Set(['expenses', 'diningItems', 'activityLog', 'recycleBin']);
-        const keys = [...new Set([...Object.keys(before), ...Object.keys(after)])].filter(key => !ignored.has(key) && stable(before[key]) !== stable(after[key]));
-        if (keys.length) addEvent(result, actor, state.token, state.now, { action: 'edit', collection: 'settings', label: '專案設定', changedFields: keys.map(key => fieldLabels[key] || key) });
         return markUpdated(result, actor, state.now);
     }
 
-    return { RETENTION_MS, MAX_DOCUMENT_BYTES, getDayNumbers, getDayLabel, daySnapshot,
-        hasExpiredArchives, pruneExpired, assertCapacity, moveToBin, restore, addDay, appendHistory };
+    return { RETENTION_MS, HISTORY_KEEP_MS, MAX_DOCUMENT_BYTES, getDayNumbers, getDayLabel, daySnapshot,
+        hasExpiredArchives, pruneExpired, assertCapacity, moveToBin, restore, addDay, appendHistory,
+        isItemHistory, getHistoryCleanupIds, clearHistory, hasDeletedEntry };
 });

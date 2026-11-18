@@ -46,8 +46,15 @@
         if (remaining >= 60 * 60 * 1000) return `${Math.ceil(remaining / (60 * 60 * 1000))} 小時內可還原`;
         return '不到 1 小時後到期';
     };
+    const isItemHistory = event => {
+        if (!event || typeof event !== 'object') return false;
+        const sharedFilter = root.EntryRecycleBin?.isItemHistory;
+        if (typeof sharedFilter === 'function') return sharedFilter(event);
+        return (event.collection === 'expenses' || event.collection === 'diningItems')
+            && ['create', 'edit', 'delete', 'restore'].includes(event.action);
+    };
 
-    function RecoveryPanel({ project, onClose, onRestore, busy = false, now }) {
+    function RecoveryPanel({ project, onClose, onRestore, canClearHistory = false, onClearHistory, busy = false, now }) {
         const React = root.React;
         if (!React) throw new Error('RecoveryPanel requires React.');
         const h = React.createElement;
@@ -118,8 +125,9 @@
         const archives = (Array.isArray(project?.data?.recycleBin) ? project.data.recycleBin : [])
             .filter(archive => expiryTime(archive) > clock)
             .slice().sort((left, right) => asTime(right.deletedAtISO ?? right.deletedAt) - asTime(left.deletedAtISO ?? left.deletedAt));
-        const history = (Array.isArray(project?.data?.activityLog) ? project.data.activityLog : [])
-            .slice().sort((left, right) => (asTime(right.at) || 0) - (asTime(left.at) || 0));
+        const rawHistory = Array.isArray(project?.data?.activityLog) ? project.data.activityLog : [];
+        const history = rawHistory.filter(isItemHistory)
+            .sort((left, right) => (asTime(right.at) || 0) - (asTime(left.at) || 0));
         const isBusy = busy || restoringId !== null;
 
         const restore = async id => {
@@ -155,6 +163,15 @@
                 h('div', { className: 'aa-recovery-tabs', role: 'tablist', 'aria-label': '回收桶與紀錄分頁' }, tabButton('bin', '回收桶', archives.length), tabButton('history', '修改紀錄', history.length)),
                 h('div', { className: 'aa-recovery-content', id: panelId, role: 'tabpanel', 'aria-labelledby': tabId, tabIndex: 0 },
                     error && h('p', { className: 'aa-recovery-error', role: 'alert' }, error),
+                    tab === 'history' && canClearHistory && rawHistory.length > 0 && h('div', { className: 'aa-recovery-history-actions' },
+                        h('span', null, `共 ${history.length} 筆帳目紀錄`),
+                        h('button', {
+                            type: 'button', className: 'aa-recovery-clear-history',
+                            disabled: isBusy || typeof onClearHistory !== 'function',
+                            onClick: () => {
+                                if (!isBusy && typeof onClearHistory === 'function') onClearHistory();
+                            }
+                        }, '只留近兩天')),
                     tab === 'bin' ? (
                         archives.length ? h('ul', { className: 'aa-recovery-list', 'aria-label': '可還原的帳目與天數' }, ...archives.map(archive => {
                             const label = archiveLabel(archive), deletedAt = archive.deletedAtISO ?? archive.deletedAt;
@@ -179,7 +196,7 @@
                                 h('h3', null, label),
                                 h('p', { className: 'aa-recovery-actor' }, `${actorName(event.actorName, event.actorId)}　${hourMinute(event.at)} ${ACTIONS[event.action] || '更新'}`),
                                 fields.length > 0 && h('p', { className: 'aa-recovery-fields', title: fields.join('、') }, `變更：${fields.slice(0, 3).join('、')}${fields.length > 3 ? ` 等 ${fields.length} 個欄位` : ''}`));
-                        })) : empty('還沒有修改紀錄', '啟用此功能後，新增、修改、刪除與還原會記錄在這裡。')
+                        })) : empty('還沒有修改紀錄', '帳目的新增、修改、刪除與還原會記錄在這裡。')
                     ))));
     }
 

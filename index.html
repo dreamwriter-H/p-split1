@@ -16,9 +16,9 @@
     <script src="./receipt-ocr.js?v=2.2.0"></script>
     <script src="./receipt-item-parser.js?v=2.4.0-prod-r1"></script>
     <script src="./dining-trip-import.js?v=2.6.0"></script>
-    <script src="./entry-recycle-bin.js?v=2.6.0"></script>
-    <script src="./recovery-panel.js?v=2.6.0"></script>
-    <link rel="stylesheet" href="./recovery-panel.css?v=2.6.0">
+    <script src="./entry-recycle-bin.js?v=2.6.2"></script>
+    <script src="./recovery-panel.js?v=2.6.2"></script>
+    <link rel="stylesheet" href="./recovery-panel.css?v=2.6.2">
 
     <style>
         .no-scrollbar::-webkit-scrollbar { display: none; }
@@ -99,8 +99,8 @@
         const auth = getAuth(app);
         const db = getFirestore(app);
         const FIREBASE_APP_ID = 'spliteasy-2026';
-        const APP_VERSION = '2.6.1';
-        const BUILD_ID = 'v2.6.1-prod-r1';
+        const APP_VERSION = '2.6.2';
+        const BUILD_ID = 'v2.6.2-prod-r1';
         // v2.2 正式版使用全新的資料空間與首頁索引，不載入任何舊版帳本。
         const DATA_SPACE = 'spliteasy-v2-2-prod';
         const USER_INDEX_SPACE = 'spliteasy-v2-2-prod';
@@ -115,7 +115,7 @@
         const COLLAB_ENTITY_ARRAY_KEYS = new Set(['people', 'diningItems', 'expenses']);
         const COLLAB_MAP_KEYS = new Set(['customAmounts']);
         // Recovery metadata and day structure are written only by their own transactions.
-        const RECOVERY_DATA_KEYS = new Set(['recycleBin', 'activityLog', 'dayOrder', 'daySequence', 'days']);
+        const RECOVERY_DATA_KEYS = new Set(['recycleBin', 'activityLog', 'historyGuards', 'dayOrder', 'daySequence', 'days']);
         const RecoveryPanel = globalThis.RecoveryPanel;
         const recoveryActor = user => ({ uid: user.uid, name: user.displayName || user.email || '共編成員' });
         const cloneDataValue = (value) => value === undefined ? undefined : JSON.parse(JSON.stringify(value));
@@ -250,7 +250,8 @@
 
                 const entities = Array.isArray(result[operation.key]) ? [...result[operation.key]] : [];
                 const index = entities.findIndex(item => entityKey(item) === operation.id);
-                if (operation.type === 'entity-upsert' && ['expenses', 'diningItems'].includes(operation.key) && (index >= 0 || (result.activityLog || []).some(event => event.collection === operation.key && String(event.entryId) === operation.id && event.action === 'delete'))) return;
+                if (operation.type === 'entity-upsert' && ['expenses', 'diningItems'].includes(operation.key)
+                    && (index >= 0 || window.EntryRecycleBin.hasDeletedEntry(result, operation.key, operation.id))) return;
                 if (operation.type === 'entity-delete') {
                     if (index >= 0) entities.splice(index, 1);
                 } else if (operation.type === 'entity-upsert') {
@@ -282,7 +283,7 @@
                 if (operation.type === 'entity-field' && !existing) message = '這筆帳目已被其他共編者刪除。';
                 if (operation.type === 'entity-field' && existing && (existing._recoveryGeneration || 0) !== (operation.expectedGeneration || 0)) message = '這筆帳目已刪除並還原，請以還原後的內容重新編輯。';
                 if (operation.type === 'entity-upsert' && existing) message = '帳目識別碼重複，未覆蓋既有帳目。';
-                if (operation.type === 'entity-upsert' && (data.activityLog || []).some(event => event.collection === operation.key && String(event.entryId) === operation.id && event.action === 'delete')) message = '這筆識別碼的帳目曾被刪除，請從回收桶還原，或新增一筆新的帳目。';
+                if (operation.type === 'entity-upsert' && window.EntryRecycleBin.hasDeletedEntry(data, operation.key, operation.id)) message = '這筆識別碼的帳目曾被刪除，請從回收桶還原，或新增一筆新的帳目。';
                 const targetDay = operation.type === 'entity-upsert' ? operation.value?.day : operation.field === 'day' ? operation.value : existing?.day;
                 if (operation.key === 'expenses' && !activeDays.includes(Math.max(1, parseInt(targetDay, 10) || 1))) message = '這筆支出所屬的天數已被刪除。';
                 if (message) { const error = new Error(message); error.code = 'collab-conflict'; throw error; }
@@ -739,7 +740,7 @@
                         <p className="text-slate-600 text-sm mb-6 whitespace-pre-wrap">{dialog.message}</p>
                         <div className="flex gap-3 justify-end">
                             {dialog.type === 'confirm' && <button onClick={onClose} className="px-5 py-2.5 rounded-xl bg-slate-100 text-slate-600 font-bold hover:bg-slate-200">取消</button>}
-                            <button onClick={() => { onClose(); if(dialog.onConfirm) dialog.onConfirm(); }} className={`px-5 py-2.5 rounded-xl bg-slate-800 text-white font-bold shadow-md hover:bg-slate-900 ${/刪除|移除|撤銷|捨棄/.test(dialog.title || '') ? 'aa-danger' : 'aa-primary'}`}>
+                            <button onClick={() => { onClose(); if(dialog.onConfirm) dialog.onConfirm(); }} className={`px-5 py-2.5 rounded-xl bg-slate-800 text-white font-bold shadow-md hover:bg-slate-900 ${/刪除|清除|移除|撤銷|捨棄/.test(dialog.title || '') ? 'aa-danger' : 'aa-primary'}`}>
                                 {dialog.confirmText || '確定'}
                             </button>
                         </div>
@@ -2830,13 +2831,16 @@
                 if (recoveryBusyRef.current) return null;
                 recoveryBusyRef.current = true;
                 setRecoveryBusy(true);
+                const clearingHistory = action === 'clear-history';
                 try {
                     const currentUser = auth.currentUser;
                     if (!currentUser || activeProjectRef.current?.id !== projectId) throw new Error('請先開啟原本的帳本。');
                     if (syncInFlightRef.current) throw new Error('帳目正在同步，請稍候再試。');
                     if (debounceTimer.current) clearTimeout(debounceTimer.current);
-                    await flushPendingProjectUpdate();
-                    if (syncInFlightRef.current || pendingProjectUpdateRef.current?.operations?.length) throw new Error('還有尚未同步的修改，請先處理未同步草稿再試。');
+                    if (!clearingHistory) {
+                        await flushPendingProjectUpdate();
+                        if (syncInFlightRef.current || pendingProjectUpdateRef.current?.operations?.length) throw new Error('還有尚未同步的修改，請先處理未同步草稿再試。');
+                    }
                     if (auth.currentUser?.uid !== currentUser.uid || activeProjectRef.current?.id !== projectId) throw new Error('登入或帳本已變更，這次操作未執行。');
                     const token = createInviteToken();
                     const committed = await runTransaction(db, async transaction => {
@@ -2847,18 +2851,27 @@
                         const now = Date.now();
                         const result = action === 'delete' ? api.moveToBin(latest, payload, actor, token, now)
                             : action === 'restore' ? api.restore(latest, payload, actor, token, now)
+                            : clearingHistory ? api.clearHistory(latest, payload, actor, now)
                             : api.addDay(latest, actor, token, now);
+                        if (result === latest) return { ...latest, id: snapshot.id };
                         const next = { ...result, recoveryWriteToken: token, recoveryWriteRevision: (Number(latest.recoveryWriteRevision) || 0) + 1, updatedAt: new Date(now).toISOString(), lastUpdatedBy: currentUser.uid };
                         transaction.set(ref, next);
                         return { ...next, id: snapshot.id };
                     });
-                    const display = { ...committed, currentUserRole: committed.ownerId === currentUser.uid ? 'owner' : 'editor' };
+                    const pending = pendingProjectUpdateRef.current;
+                    const canResumeDraft = clearingHistory && pending?.projectId === projectId && pending.actorUid === currentUser.uid
+                        && pending.operations?.length;
+                    const displayData = canResumeDraft ? applyDataOperations(committed.data, pending.operations) : committed.data;
+                    const display = { ...committed, data: displayData, name: getProjectDisplayName(committed.type, displayData),
+                        currentUserRole: committed.ownerId === currentUser.uid ? 'owner' : 'editor' };
                     if (activeProjectRef.current?.id === projectId) {
                         activeProjectRef.current = display;
                         setActiveProjectData(display);
                     }
                     setProjects(previous => previous.map(project => project.id === projectId ? display : project));
-                    if (action !== 'add') showMessage({ title: action === 'restore' ? '已還原' : '已移到回收桶', message: action === 'restore' ? '帳目已還原，修改紀錄也已更新。' : '可在帳本上方的「回收桶與紀錄」找回，保留七天。' });
+                    if (canResumeDraft) debounceTimer.current = setTimeout(flushPendingProjectUpdate, 800);
+                    if (clearingHistory) showMessage({ title: '已整理修改紀錄', message: '最近兩天的品項紀錄已保留。之後的品項異動仍會記錄。' });
+                    else if (action !== 'add') showMessage({ title: action === 'restore' ? '已還原' : '已移到回收桶', message: action === 'restore' ? '帳目已還原，修改紀錄也已更新。' : '可在帳本上方的「回收桶與紀錄」找回，保留七天。' });
                     return committed;
                 } catch (error) {
                     console.error('Recovery action failed:', error);
@@ -2868,6 +2881,16 @@
                     recoveryBusyRef.current = false;
                     setRecoveryBusy(false);
                 }
+            };
+
+            const requestClearHistory = () => {
+                const project = activeProjectRef.current;
+                if (!project || project.ownerId !== auth.currentUser?.uid) return;
+                const ids = window.EntryRecycleBin.getHistoryCleanupIds(project.data);
+                if (!ids.length) return showMessage({ title: '沒有舊紀錄需要清理', message: '這個帳本的品項紀錄都在最近兩天內。' });
+                setDialog({ type: 'confirm', title: '清除舊紀錄', confirmText: '確定清理',
+                    message: `會保留最近 48 小時的品項紀錄，並清除 ${ids.length} 筆較舊或非品項紀錄。清除後無法還原。帳目和回收桶內容會保留。`,
+                    onConfirm: () => runRecoveryAction(project.id, 'clear-history', ids) });
             };
 
             const requestDeleteEntry = (collection, item) => {
@@ -3101,7 +3124,7 @@
                 <div className="min-h-screen">
                     <DialogModal dialog={dialog} onClose={() => setDialog(null)} />
                     {recoveryBusy && <div ref={recoveryStatusRef} tabIndex={-1} role="status" aria-live="polite" className="fixed inset-0 z-[10000] bg-black/40 flex items-center justify-center p-6"><p className="bg-white rounded-2xl p-6 text-slate-800 font-bold">正在確認雲端帳目，請稍候…</p></div>}
-                    {showRecovery && view === 'activeProject' && activeProjectData && <RecoveryPanel project={activeProjectData} onClose={() => setShowRecovery(false)} busy={recoveryBusy} onRestore={id => runRecoveryAction(activeProjectData.id, 'restore', id)} />}
+                    {showRecovery && view === 'activeProject' && activeProjectData && <RecoveryPanel project={activeProjectData} onClose={() => setShowRecovery(false)} busy={recoveryBusy} onRestore={id => runRecoveryAction(activeProjectData.id, 'restore', id)} canClearHistory={activeProjectData.ownerId === user.uid} onClearHistory={requestClearHistory} />}
                     <ShareInviteModal invite={shareInvite} onClose={() => setShareInvite(null)} />
                     {showCollaborationManager && activeProjectData?.ownerId === user.uid && <CollaborationManagerModal project={activeProjectData} user={user} onClose={() => setShowCollaborationManager(false)} onCreateInvite={handleShareProject} requestConfirm={setDialog} showMessage={showMessage} />}
                     <header inert={recoveryBusy ? '' : undefined} className="aa-header bg-white shadow-sm sticky top-0 z-10 px-4 py-3 flex items-center justify-between">
