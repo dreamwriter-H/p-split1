@@ -99,8 +99,8 @@
         const auth = getAuth(app);
         const db = getFirestore(app);
         const FIREBASE_APP_ID = 'spliteasy-2026';
-        const APP_VERSION = '2.6.0';
-        const BUILD_ID = 'v2.6.0-prod-r1';
+        const APP_VERSION = '2.6.1';
+        const BUILD_ID = 'v2.6.1-prod-r1';
         // v2.2 正式版使用全新的資料空間與首頁索引，不載入任何舊版帳本。
         const DATA_SPACE = 'spliteasy-v2-2-prod';
         const USER_INDEX_SPACE = 'spliteasy-v2-2-prod';
@@ -1647,7 +1647,7 @@
                     </button>
                     {expanded && <div id="dining-wallet-options" className="px-4 pb-4 border-t border-orange-100">
                         <p className="text-xs text-slate-500 leading-relaxed py-3">和旅遊模式一樣：先點要移動的頭像，再點要併入的錢包。餐費仍按每個人計算，最後才合併結算。</p>
-                        <div ref={recoveryStatusRef} tabIndex={-1} role="status" aria-live="polite" className={`mb-4 rounded-xl p-3 text-xs leading-relaxed ${selectedWallet ? 'bg-orange-100 text-orange-800' : 'bg-slate-50 text-slate-500'}`}>
+                        <div role="status" aria-live="polite" className={`mb-4 rounded-xl p-3 text-xs leading-relaxed ${selectedWallet ? 'bg-orange-100 text-orange-800' : 'bg-slate-50 text-slate-500'}`}>
                             {selectedWallet ? <div className="flex items-start justify-between gap-2"><span className="min-w-0 break-words">已選取 <b>{selectedWallet.name}</b>{selectedWallet.members.length > 1 ? ` 的錢包（${selectedWallet.members.length} 人）` : ''}，請點選要併入的錢包。</span><button type="button" onClick={() => setSelectedId(null)} className="font-bold underline underline-offset-2 shrink-0">取消選取</button></div> : '① 點選要移動的成員或錢包　② 點選結算代表'}
                         </div>
                         <div className="grid grid-cols-2 gap-3 items-start">{wallets.map(wallet => {

@@ -33,14 +33,7 @@ jobs:
           java-version: '21'
       - run: npm ci --prefix tests
       - run: node --test tests/*.test.cjs
-      - name: Compile production JSX
-        env:
-          NODE_PATH: ${{ github.workspace }}/tests/node_modules
-        run: |
-          node - <<'JS'
-          const fs = require('node:fs');
-          const source = fs.readFileSync('index.html', 'utf8').match(/<script type="text\/babel"[^>]*>([\s\S]*?)<\/script>/)[1];
-          require('@babel/standalone').transform(source, { presets: ['react'], sourceType: 'module' });
-          JS
+      - name: Compile production JSX and check scope of refs
+        run: node tests/check-app-jsx.cjs
       - name: Test Firestore rules locally with demo data
         run: tests/node_modules/.bin/firebase emulators:exec --only firestore --project demo-aa-recovery-rules --config firebase.emulator.json "node tests/recovery-rules.emulator.cjs"
