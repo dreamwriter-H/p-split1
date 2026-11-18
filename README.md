@@ -5,7 +5,7 @@
 - 旅遊分頁：設定薄荷綠、記帳天藍、結算檸檬黃；主操作統一品牌亮藍。
 - 更新記帳本首頁、聚餐四步驟、金額摘要、共同錢包、支出表單、收據校對與共編視窗。
 - 保留原本的記帳、分攤、匯入、權限與同步邏輯；不包含尚待驗收的回收桶功能。
-- 正式網址維持 <https://dreamwriter-h.github.io/p-split1/>；畫面版本為 `2.5.0 / v2.5.0-prod-r1`。
+- 畫面版本為 `2.5.0 / v2.5.0-prod-r1`。
 - 詳細發布前檢查見 `VERIFICATION_v2.5.0.md`，視覺比對見 `design-qa.md`。
 
 ---
@@ -16,7 +16,6 @@
 
 A.A 2GETHER（原名 Split Easy）支援聚餐、旅遊與多人共同分帳。v2.4.2 更新笑臉字標、繽紛疊卡開場、登入頁及 App 左上角名稱；登入、帳本資料空間與分帳計算沿用 v2.4.1。
 
-- 正式網址維持 <https://dreamwriter-h.github.io/p-split1/>。
 - 版本標記：`2.4.2 / v2.4.2-prod-r1`。
 - 本次不包含仍在開發分支的回收桶功能。
 - 本版驗證與發布紀錄見 `VERIFICATION_v2.4.2.md`；其餘功能沿用下方歷史說明。
@@ -50,9 +49,7 @@ Split Easy 是以 Google 帳號登入的雲端共編分帳 App，支援聚餐、
 
 ## 使用入口
 
-- 正式入口：<https://dreamwriter-h.github.io/p-split1/>
 - 正式站對應 `dreamwriter-H/p-split1` 的 `main`；`p-split` 是另一個舊站。版本宣告可見 <https://github.com/dreamwriter-H/p-split1/blob/main/index.html#L48-L49>。
-- 歷史驗收入口：<https://dreamwriter-h.github.io/p-split1/v2-preview/>
 - 正式入口固定不含版本號；版本由頁面底部顯示的 `APP_VERSION` 與 `BUILD_ID` 辨識。
 
 `/v2-preview/` 僅保留 rc4 歷史驗證頁。其舊資料空間已停寫，不能當成正式記帳入口。
