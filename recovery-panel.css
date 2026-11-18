@@ -1,0 +1,74 @@
+.aa-recovery {
+    position: fixed;
+    inset: 0;
+    z-index: 9000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    background: rgb(22 36 74 / .48);
+    color: #16244a;
+    font-family: inherit;
+}
+.aa-recovery *, .aa-recovery *::before, .aa-recovery *::after { box-sizing: border-box; }
+.aa-recovery-panel {
+    display: flex;
+    flex-direction: column;
+    width: min(100%, 560px);
+    min-width: 0;
+    max-height: 85vh;
+    max-height: 85dvh;
+    overflow: hidden;
+    border: 1px solid #dfe4f2;
+    border-radius: 28px;
+    background: #f5f4f7;
+    box-shadow: 0 20px 70px rgb(22 36 74 / .2);
+    text-align: left;
+}
+.aa-recovery-header { display: flex; align-items: center; gap: 12px; justify-content: space-between; padding: 22px 22px 0; }
+.aa-recovery-header > div { min-width: 0; }
+.aa-recovery-eyebrow { margin: 0 0 6px; color: #133dd5; font-size: 11px; font-weight: 750; letter-spacing: .08em; }
+.aa-recovery h2 { margin: 0; font-size: 21px; font-weight: 850; line-height: 1.4; overflow-wrap: anywhere; }
+.aa-recovery button { min-height: 42px; font: inherit; font-weight: 750; cursor: pointer; touch-action: manipulation; }
+.aa-recovery button:focus-visible, .aa-recovery [tabindex]:focus-visible { outline: 3px solid #ffb52c; outline-offset: 3px; }
+.aa-recovery button:disabled { opacity: .55; cursor: wait; }
+.aa-recovery-close { flex: 0 0 42px; width: 42px; padding: 0; border: 1px solid #dfe4f2; border-radius: 50%; background: white; color: #16244a; font-size: 26px !important; line-height: 1; }
+.aa-recovery-description { padding: 0 22px; margin: 12px 0 18px; color: #53607e; font-size: 12px; line-height: 1.7; }
+.aa-recovery-tabs { display: flex; gap: 6px; margin: 0 22px 14px; padding: 5px; border: 1px solid #e1e4ed; border-radius: 16px; background: #e8edf5; }
+.aa-recovery-tabs button { display: flex; align-items: center; justify-content: center; flex: 1 1 0; gap: 8px; min-width: 0; padding: 8px 6px; border: 0; border-radius: 11px; background: transparent; color: #53607e; font-size: 13px; }
+.aa-recovery-tabs button[aria-selected="true"] { background: #133dd5; color: white; box-shadow: 0 2px 5px rgb(19 61 213 / .15); }
+.aa-recovery-count { display: inline-flex; align-items: center; justify-content: center; min-width: 22px; min-height: 22px; border-radius: 7px; padding: 1px 5px; background: rgb(255 255 255 / .6); color: #16244a; font-size: 11px; }
+.aa-recovery-tabs button[aria-selected="true"] .aa-recovery-count { background: #ffe635; }
+.aa-recovery-content { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 3px 22px 24px; scrollbar-gutter: stable; }
+.aa-recovery-list { display: flex; flex-direction: column; gap: 12px; padding: 0; margin: 0; list-style: none; }
+.aa-recovery-card { min-width: 0; margin: 0; padding: 16px; border: 1px solid #e1e5ef; border-radius: 18px; background: white; }
+.aa-recovery-card h3 { margin: 12px 0 8px; font-size: 16px; font-weight: 800; line-height: 1.5; overflow-wrap: anywhere; }
+.aa-recovery-card-top, .aa-recovery-card-bottom { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px 12px; }
+.aa-recovery-kind { display: inline-block; max-width: 100%; padding: 5px 8px; border-radius: 7px; background: #d7edfc; color: #16355b; font-size: 11px; font-weight: 750; overflow-wrap: anywhere; }
+.aa-recovery-kind-day { background: #d8f2e2; color: #205140; }
+.aa-recovery-expiry { color: #53607e; font-size: 11px; }
+.aa-recovery-actor { margin: 0; color: #3c4967; font-size: 12px; line-height: 1.7; overflow-wrap: anywhere; white-space: pre-wrap; }
+.aa-recovery-card-bottom { margin-top: 14px; }
+.aa-recovery time { color: #63708c; font-size: 11px; line-height: 1.6; }
+.aa-recovery-restore { padding: 9px 20px; border: 1px solid #133dd5; border-radius: 11px; background: #133dd5; color: white; font-size: 13px !important; }
+.aa-recovery-restore:hover:not(:disabled) { background: #0e2dab; }
+.aa-recovery-empty { min-height: 220px; padding: 30px 8px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
+.aa-recovery-empty-symbol { display: flex; align-items: center; justify-content: center; width: 64px; height: 64px; border-radius: 20px; background: #ffe635; color: #16244a; font-size: 35px; }
+.aa-recovery-empty p { margin: 16px 0 7px; font-size: 15px; font-weight: 800; }
+.aa-recovery-empty > span:last-child { max-width: 280px; color: #63708c; font-size: 12px; line-height: 1.8; }
+.aa-recovery-event { border-left: 4px solid #86d2fa; }
+.aa-recovery-event.aa-recovery-action-delete, .aa-recovery-event.aa-recovery-action-delete-day { border-left-color: #ff5b2c; }
+.aa-recovery-event.aa-recovery-action-restore { border-left-color: #8bdcab; }
+.aa-recovery-event-action { color: #133dd5; font-size: 12px; font-weight: 800; }
+.aa-recovery-fields { margin: 8px 0 0; color: #63708c; font-size: 11px; line-height: 1.7; overflow-wrap: anywhere; }
+.aa-recovery-error { padding: 12px; margin: 0 0 12px; border: 1px solid #f2bab1; border-radius: 12px; background: #fff1ee; color: #9b301c; font-size: 13px; line-height: 1.7; overflow-wrap: anywhere; }
+@media (max-width: 360px) {
+    .aa-recovery { padding: 10px; }
+    .aa-recovery-panel { border-radius: 22px; }
+    .aa-recovery-header { padding: 18px 16px 0; }
+    .aa-recovery h2 { font-size: 18px; }
+    .aa-recovery-description { padding-inline: 16px; }
+    .aa-recovery-tabs { margin-inline: 16px; }
+    .aa-recovery-content { padding-inline: 16px; }
+    .aa-recovery-card { padding: 13px; }
+}

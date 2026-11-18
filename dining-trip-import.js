@@ -20,7 +20,24 @@
  // Firestore map keys may return in a different order; array order and values remain significant.
  const stableStringify=value=>JSON.stringify(value,(_,nested)=>nested&&typeof nested==='object'&&!Array.isArray(nested)?Object.fromEntries(Object.keys(nested).sort().map(key=>[key,nested[key]])):nested);
  const fingerprint=d=>stableStringify(financialData(d));
- const targetFingerprint=d=>JSON.stringify({people:(d.people||[]).map(p=>({id:p.id,name:p.name||'',payerId:p.payerId||p.id})),days:Math.max(1,parseInt(d.days,10)||1)});
+ // Keep day slots stable after deletion/restoration. This module deliberately does
+ // not depend on EntryRecycleBin: browser script order and Node consumers vary.
+ const activeDays=d=>{
+  if(d.dayOrder!==undefined){
+   if(!Array.isArray(d.dayOrder)||!d.dayOrder.length)fail('旅遊至少需要保留一天。');
+   const order=d.dayOrder.map(Number);
+   if(order.some(day=>!Number.isSafeInteger(day)||day<1)||new Set(order).size!==order.length)fail('旅遊天數資料異常，請重新確認日程。');
+   return order;
+  }
+  const highest=Math.max(1,parseInt(d.days,10)||1,...(d.expenses||[]).map(e=>Math.max(1,parseInt(e.day,10)||1)));
+  if(highest>100000)fail('旅遊天數資料異常，請重新確認日程。');
+  return Array.from({length:highest},(_,index)=>index+1);
+ };
+ const targetFingerprint=d=>{
+  const dayOrder=activeDays(d);
+  return JSON.stringify({people:(d.people||[]).map(p=>({id:p.id,name:p.name||'',payerId:p.payerId||p.id})),
+   days:Math.max(1,parseInt(d.days,10)||1),dayOrder,daySequence:Math.max(Number(d.daySequence)||0,...dayOrder)});
+ };
  const hasImport=(trip,sourceId)=>(trip.expenses||[]).some(e=>e.diningImport?.sourceProjectId===sourceId);
  const build=(source,trip,options,calculation,rows)=>{
   const people=source.people||[],targets=trip.people||[],mapping=options.mapping||{};
@@ -49,8 +66,8 @@
   }
   const payer=targets.find(t=>key(t.id)===key(mapping[calculation.payerId]));
   if(!payer)fail('請確認聚餐付款人的成員對應。');
-  const day=Number(options.day),days=Math.max(1,parseInt(trip.days,10)||1);
-  if(!Number.isInteger(day)||day<1||day>days)fail('請選擇旅遊中有效的天數。');
+  const day=Number(options.day);
+  if(!Number.isSafeInteger(day)||!activeDays(trip).includes(day))fail('請選擇旅遊中有效的天數。');
   if(!rows.length||Math.abs(rows.reduce((s,r)=>s+Number(r.amount),0)-total)>0.005)fail('費用明細合計異常，請返回聚餐確認。');
   return {
    id:options.expenseId,desc:source.title?.trim()||'未命名聚餐',amount:total,day,

@@ -463,3 +463,42 @@ body.aa-ui header > div > button[class*="bg-teal"] {
     .aa-form-modal, .aa-receipt-modal, .aa-collaboration-modal, .aa-share-modal, .aa-dialog-modal)
     button:not(:disabled) .text-slate-300 { color: var(--aa-muted); }
 .aa-ui .aa-header button[aria-label="登出"] { color: var(--aa-muted); }
+
+/* Native mobile date controls must fit the dining form's available inline size.
+   Keep type=date and its native picker; constrain WebKit's internal value box. */
+.aa-ui .aa-dining input[type="date"] {
+    display: block;
+    width: 100%;
+    inline-size: 100%;
+    min-width: 0;
+    min-inline-size: 0;
+    max-width: 100%;
+    max-inline-size: 100%;
+    box-sizing: border-box;
+    -webkit-appearance: none;
+    appearance: none;
+}
+.aa-ui .aa-dining input[type="date"]::-webkit-date-and-time-value {
+    min-width: 0;
+    min-inline-size: 0;
+    max-width: 100%;
+    max-inline-size: 100%;
+    text-align: left;
+}
+.aa-ui .aa-dining input[type="date"]::-webkit-datetime-edit {
+    min-width: 0;
+    min-inline-size: 0;
+    max-width: 100%;
+    max-inline-size: 100%;
+    padding: 0;
+}
+.aa-ui .aa-dining input[type="date"]::-webkit-calendar-picker-indicator {
+    flex-shrink: 0;
+}
+
+/* The extra-day action is intentionally limited to the final empty day. */
+.aa-ui .aa-day-heading { align-items: flex-start; }
+.aa-ui .aa-day-heading > div:first-child { min-width: 0; flex: 1 1 170px; }
+.aa-ui .aa-day-actions { max-width: 100%; }
+.aa-ui .aa-travel button.aa-delete-day { color: var(--aa-danger); background: white; border-color: #efb8bf; }
+.aa-ui .aa-travel button.aa-delete-day:hover:not(:disabled) { background: var(--aa-danger-pale); }

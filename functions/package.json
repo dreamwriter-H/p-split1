@@ -1,0 +1,16 @@
+{
+  "name": "aa-2gether-recovery-cleanup",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Scheduled cleanup for expired A.A 2GETHER recycle-bin records",
+  "main": "index.js",
+  "engines": { "node": "22" },
+  "scripts": {
+    "test": "node --test test/*.test.cjs",
+    "check": "node --check index.js && node --check recycle-bin-cleanup.js"
+  },
+  "dependencies": {
+    "firebase-admin": "14.5.1",
+    "firebase-functions": "7.4.0"
+  }
+}

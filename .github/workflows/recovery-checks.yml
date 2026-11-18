@@ -1,0 +1,48 @@
+name: Recovery checks
+on:
+  push:
+    branches: [feat/v2.6.0-recovery-history]
+  pull_request:
+    paths:
+      - index.html
+      - '*recycle*'
+      - '*recovery*'
+      - dining-trip-import.js
+      - firestore.rules
+      - firebase.json
+      - functions/**
+      - tests/**
+      - .github/workflows/recovery-checks.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  recovery:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: tests/package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - run: npm ci --prefix tests
+      - run: node --test tests/*.test.cjs functions/test/*.test.cjs
+      - run: npm ci --prefix functions
+      - run: npm --prefix functions run check
+      - name: Compile production JSX
+        env:
+          NODE_PATH: ${{ github.workspace }}/tests/node_modules
+        run: |
+          node - <<'JS'
+          const fs = require('node:fs');
+          const source = fs.readFileSync('index.html', 'utf8').match(/<script type="text\/babel"[^>]*>([\s\S]*?)<\/script>/)[1];
+          require('@babel/standalone').transform(source, { presets: ['react'], sourceType: 'module' });
+          JS
+      - name: Test Firestore rules locally with demo data
+        run: tests/node_modules/.bin/firebase emulators:exec --only firestore --project demo-aa-recovery-rules --config tests/firebase.emulator.json "node tests/recovery-rules.emulator.cjs"

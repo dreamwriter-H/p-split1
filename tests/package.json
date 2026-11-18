@@ -1,0 +1,10 @@
+{
+  "name": "aa-2gether-recovery-checks",
+  "private": true,
+  "devDependencies": {
+    "@babel/standalone": "7.28.5",
+    "@firebase/rules-unit-testing": "4.0.1",
+    "firebase": "11.10.0",
+    "firebase-tools": "14.27.0"
+  }
+}

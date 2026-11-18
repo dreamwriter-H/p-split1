@@ -15,7 +15,10 @@
     <script src="./invoice-qr-parser.js?v=2.2.0"></script>
     <script src="./receipt-ocr.js?v=2.2.0"></script>
     <script src="./receipt-item-parser.js?v=2.4.0-prod-r1"></script>
-    <script src="./dining-trip-import.js?v=2.4.1-prod-r1"></script>
+    <script src="./dining-trip-import.js?v=2.6.0-review-r1"></script>
+    <script src="./entry-recycle-bin.js?v=2.6.0-review-r1"></script>
+    <script src="./recovery-panel.js?v=2.6.0-review-r1"></script>
+    <link rel="stylesheet" href="./recovery-panel.css?v=2.6.0-review-r1">
 
     <style>
         .no-scrollbar::-webkit-scrollbar { display: none; }
@@ -96,8 +99,8 @@
         const auth = getAuth(app);
         const db = getFirestore(app);
         const FIREBASE_APP_ID = 'spliteasy-2026';
-        const APP_VERSION = '2.5.0';
-        const BUILD_ID = 'v2.5.0-prod-r1';
+        const APP_VERSION = '2.6.0-dev';
+        const BUILD_ID = 'v2.6.0-review-r1';
         // v2.2 正式版使用全新的資料空間與首頁索引，不載入任何舊版帳本。
         const DATA_SPACE = 'spliteasy-v2-2-prod';
         const USER_INDEX_SPACE = 'spliteasy-v2-2-prod';
@@ -111,6 +114,10 @@
         // 共編時只合併實際變動的欄位；避免兩台裝置用舊的整份資料互相覆蓋。
         const COLLAB_ENTITY_ARRAY_KEYS = new Set(['people', 'diningItems', 'expenses']);
         const COLLAB_MAP_KEYS = new Set(['customAmounts']);
+        // Recovery metadata and day structure are written only by their own transactions.
+        const RECOVERY_DATA_KEYS = new Set(['recycleBin', 'activityLog', 'dayOrder', 'daySequence', 'days']);
+        const RecoveryPanel = globalThis.RecoveryPanel;
+        const recoveryActor = user => ({ uid: user.uid, name: user.displayName || user.email || '共編成員' });
         const cloneDataValue = (value) => value === undefined ? undefined : JSON.parse(JSON.stringify(value));
         const dataValuesEqual = (left, right) => JSON.stringify(left) === JSON.stringify(right);
         const hasOwn = (value, key) => Object.prototype.hasOwnProperty.call(value || {}, key);
@@ -158,6 +165,7 @@
             const keys = new Set([...Object.keys(baseData || {}), ...Object.keys(nextData || {})]);
 
             keys.forEach(key => {
+                if (RECOVERY_DATA_KEYS.has(key)) return;
                 const baseValue = baseData?.[key];
                 const nextValue = nextData?.[key];
                 if (dataValuesEqual(baseValue, nextValue)) return;
@@ -178,6 +186,7 @@
                         }
                         const itemFields = new Set([...Object.keys(baseItem), ...Object.keys(item)]);
                         itemFields.delete('id');
+                        itemFields.delete('_recoveryGeneration');
                         itemFields.forEach(field => {
                             if (dataValuesEqual(baseItem[field], item[field])) return;
                             operations.push({
@@ -185,6 +194,7 @@
                                 key,
                                 id,
                                 field,
+                                expectedGeneration: baseItem._recoveryGeneration || 0,
                                 remove: !hasOwn(item, field),
                                 value: cloneDataValue(item[field])
                             });
@@ -222,6 +232,8 @@
         const applyDataOperations = (sourceData = {}, operations = []) => {
             const result = cloneDataValue(sourceData) || {};
             operations.forEach(operation => {
+                if (RECOVERY_DATA_KEYS.has(operation.key)) return;
+                if (operation.key === 'expenses' && operation.type === 'entity-upsert' && !window.EntryRecycleBin.getDayNumbers(result).includes(Math.max(1, parseInt(operation.value?.day, 10) || 1))) return;
                 if (operation.type === 'data-field') {
                     if (operation.remove) delete result[operation.key];
                     else result[operation.key] = cloneDataValue(operation.value);
@@ -238,13 +250,17 @@
 
                 const entities = Array.isArray(result[operation.key]) ? [...result[operation.key]] : [];
                 const index = entities.findIndex(item => entityKey(item) === operation.id);
+                if (operation.type === 'entity-upsert' && ['expenses', 'diningItems'].includes(operation.key) && (index >= 0 || (result.activityLog || []).some(event => event.collection === operation.key && String(event.entryId) === operation.id && event.action === 'delete'))) return;
                 if (operation.type === 'entity-delete') {
                     if (index >= 0) entities.splice(index, 1);
                 } else if (operation.type === 'entity-upsert') {
                     if (index >= 0) entities[index] = { ...entities[index], ...cloneDataValue(operation.value) };
                     else entities.push(cloneDataValue(operation.value));
                 } else if (operation.type === 'entity-field') {
-                    const entity = index >= 0 ? { ...entities[index] } : { id: operation.id };
+                    // A stale edit must never recreate an entry another collaborator deleted.
+                    if (index < 0) return;
+                    if ((entities[index]._recoveryGeneration || 0) !== (operation.expectedGeneration || 0)) return;
+                    const entity = { ...entities[index] };
                     if (operation.remove) delete entity[operation.field];
                     else entity[operation.field] = cloneDataValue(operation.value);
                     if (index >= 0) entities[index] = entity;
@@ -253,6 +269,25 @@
                 result[operation.key] = entities;
             });
             return result;
+        };
+
+        const assertRecoverableOperations = (project, operations) => {
+            let data = project.data || {};
+            const activeDays = project.type === 'travel' ? window.EntryRecycleBin.getDayNumbers(data) : [];
+            for (const operation of operations) {
+                if (!['expenses', 'diningItems'].includes(operation.key)) continue;
+                const existing = (data[operation.key] || []).find(item => entityKey(item) === operation.id);
+                let message = '';
+                if (operation.type === 'entity-delete') message = '請使用帳目旁的刪除按鈕，將帳目移入回收桶。';
+                if (operation.type === 'entity-field' && !existing) message = '這筆帳目已被其他共編者刪除。';
+                if (operation.type === 'entity-field' && existing && (existing._recoveryGeneration || 0) !== (operation.expectedGeneration || 0)) message = '這筆帳目已刪除並還原，請以還原後的內容重新編輯。';
+                if (operation.type === 'entity-upsert' && existing) message = '帳目識別碼重複，未覆蓋既有帳目。';
+                if (operation.type === 'entity-upsert' && (data.activityLog || []).some(event => event.collection === operation.key && String(event.entryId) === operation.id && event.action === 'delete')) message = '這筆識別碼的帳目曾被刪除，請從回收桶還原，或新增一筆新的帳目。';
+                const targetDay = operation.type === 'entity-upsert' ? operation.value?.day : operation.field === 'day' ? operation.value : existing?.day;
+                if (operation.key === 'expenses' && !activeDays.includes(Math.max(1, parseInt(targetDay, 10) || 1))) message = '這筆支出所屬的天數已被刪除。';
+                if (message) { const error = new Error(message); error.code = 'collab-conflict'; throw error; }
+                data = applyDataOperations(data, [operation]);
+            }
         };
 
         const getProjectDisplayName = (type, data) => {
@@ -541,8 +576,9 @@
                 if (!groups.has(day)) groups.set(day, []);
                 groups.get(day).push({ id: expense.id || index, name: expense.desc?.trim() || '未命名費用', amount: parseFloat(expense.amount) || 0, diningImport: expense.diningImport || null });
             });
-            return [...groups.entries()].sort((left, right) => left[0] - right[0]).map(([day, rows]) => ({
-                day, rows, total: rows.reduce((sum, row) => sum + row.amount, 0)
+            const dayOrder = window.EntryRecycleBin.getDayNumbers(trip);
+            return [...groups.entries()].sort((left, right) => dayOrder.indexOf(left[0]) - dayOrder.indexOf(right[0])).map(([day, rows]) => ({
+                day, label: window.EntryRecycleBin.getDayLabel(trip, day), rows, total: rows.reduce((sum, row) => sum + row.amount, 0)
             }));
         };
 
@@ -562,13 +598,13 @@
         const DiningTripImportModal = ({ sourceId, data, calculation, travelProjects, onImport, onClose }) => {
             const [targetId,setTargetId] = useState(travelProjects[0]?.id || '');
             const target = travelProjects.find(p=>p.id===targetId);
-            const [day,setDay] = useState(1),[mapping,setMapping] = useState(()=>window.SplitEasyDiningImport.autoMap(data,target?.data || {}));
+            const [day,setDay] = useState(window.EntryRecycleBin.getDayNumbers(target?.data || {})[0]),[mapping,setMapping] = useState(()=>window.SplitEasyDiningImport.autoMap(data,target?.data || {}));
             const [accepted,setAccepted] = useState(false),[busy,setBusy] = useState(false),[error,setError] = useState('');
             const busyRef = useRef(false);
             const sourceFingerprint = window.SplitEasyDiningImport.fingerprint(data);
             const targetFingerprint = window.SplitEasyDiningImport.targetFingerprint(target?.data || {});
             useEffect(()=>{
-                setMapping(window.SplitEasyDiningImport.autoMap(data,target?.data || {}));setDay(1);setAccepted(false);setError('');
+                setMapping(window.SplitEasyDiningImport.autoMap(data,target?.data || {}));setDay(window.EntryRecycleBin.getDayNumbers(target?.data || {})[0]);setAccepted(false);setError('');
             },[targetId,sourceFingerprint,targetFingerprint]);
             const rows = getDiningExpenseRows(data,calculation);
             let validation = '';
@@ -590,7 +626,7 @@
                     <p className="text-sm text-slate-600">{data.title || '本次聚餐'} · {formatMoney(calculation.finalTotal)}，會新增為一筆支出。</p>
                     {!travelProjects.length ? <p className="text-sm text-orange-700">請先建立旅遊專案與成員，再回來匯入。</p> : <>
                     <label className="block text-sm font-bold">旅遊專案<select aria-label="旅遊專案" value={targetId} disabled={busy} onChange={e=>setTargetId(e.target.value)} className="mt-2 p-3 border rounded-xl w-full">{travelProjects.map(p=><option key={p.id} value={p.id}>{p.data.name || p.name || '未命名旅遊'}{window.SplitEasyDiningImport.hasImport(p.data,sourceId)?'（已匯入）':''}</option>)}</select></label>
-                    <label className="block text-sm font-bold">旅遊天數<select aria-label="旅遊天數" value={day} disabled={busy} onChange={e=>setDay(Number(e.target.value))} className="mt-2 p-3 border rounded-xl w-full">{Array.from({length:Math.max(1,parseInt(target?.data.days,10)||1)},(_,i)=><option key={i+1} value={i+1}>第 {i+1} 天</option>)}</select></label>
+                    <label className="block text-sm font-bold">旅遊天數<select aria-label="旅遊天數" value={day} disabled={busy} onChange={e=>setDay(Number(e.target.value))} className="mt-2 p-3 border rounded-xl w-full">{window.EntryRecycleBin.getDayNumbers(target?.data || {}).map((slot,index)=><option key={slot} value={slot}>第 {index+1} 天</option>)}</select></label>
                     <div><h4 className="font-bold text-sm mb-2">核對成員</h4><p className="text-xs text-slate-500 mb-3">唯一同名會自動對應；未參加聚餐的旅遊成員不分攤。每人只能對應一次。</p>
                     <div className="space-y-3">{data.people.map(p=><label key={p.id} className="block text-sm"><span className="flex justify-between gap-2"><span className="break-words">{getPersonNameHelper(p.id,data.people)}</span><b className="shrink-0">{formatMoney(calculation.results.find(r=>r.id===p.id)?.amount || 0)}</b></span>
                     <select aria-label={`對應 ${getPersonNameHelper(p.id,data.people)}`} value={mapping[p.id] || ''} disabled={busy} onChange={e=>{setMapping(current=>({...current,[p.id]:e.target.value}));setAccepted(false);}} className="mt-1 p-3 border rounded-xl w-full"><option value="">請選擇旅遊成員</option>{(target?.data.people || []).map(t=><option key={t.id} value={String(t.id)}>{getPersonNameHelper(t.id,target.data.people)}{(target.data.people.filter(x=>x.name?.trim()===t.name?.trim()).length>1)?`（成員 ${target.data.people.indexOf(t)+1}）`:''}</option>)}</select></label>)}</div></div>
@@ -602,15 +638,15 @@
                 </section>
             </div>;
         };
-        const ImportedDiningEditModal = ({ expense, dayCount, onSave, onClose }) => {
+        const ImportedDiningEditModal = ({ expense, dayNumbers, onSave, onClose }) => {
             const [desc,setDesc]=useState(expense.desc),[day,setDay]=useState(expense.day);
             return <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-3"><section role="dialog" aria-modal="true" aria-label="聚餐匯入明細" className="aa-form-modal bg-white rounded-2xl p-5 w-full max-w-md max-h-[92vh] overflow-y-auto space-y-4">
             <h3 className="font-bold text-xl">聚餐匯入明細</h3>
             <label className="block text-sm font-bold">費用名稱<input aria-label="費用名稱" value={desc} onChange={e=>setDesc(e.target.value)} className="w-full p-3 border rounded-xl mt-2"/></label>
-            <label className="block text-sm font-bold">旅遊天數<select aria-label="旅遊天數" value={day} onChange={e=>setDay(Number(e.target.value))} className="w-full p-3 border rounded-xl mt-2">{Array.from({length:dayCount},(_,i)=><option key={i+1} value={i+1}>第 {i+1} 天</option>)}</select></label>
-            <p className="font-bold text-teal-700">合計 {formatMoney(expense.amount)}</p><DiningImportDetails snapshot={expense.diningImport}/>
+            <label className="block text-sm font-bold">旅遊天數<select aria-label="旅遊天數" value={dayNumbers.includes(day) ? day : ''} onChange={e=>setDay(Number(e.target.value))} className="w-full p-3 border rounded-xl mt-2">{!dayNumbers.includes(day) && <option value="" disabled>請重新選擇有效天數</option>}{dayNumbers.map((slot,index)=><option key={slot} value={slot}>第 {index+1} 天</option>)}</select></label>
+            <p className="font-bold text-teal-700">合計 {formatMoney(expense.amount)}</p>{!dayNumbers.includes(day) && <p role="alert" className="text-sm text-red-600">原本的天數已刪除，請選擇有效天數，已填內容仍保留。</p>}<DiningImportDetails snapshot={expense.diningImport}/>
             <p className="text-xs text-slate-500 leading-relaxed">需要修改付款人或負擔金額時，請刪除旅遊中的這筆支出，修正原聚餐後再重新匯入。</p>
-            <div className="flex gap-3"><button onClick={onClose} className="flex-1 p-3 bg-slate-100 rounded-xl font-bold">關閉</button><button disabled={!desc.trim()} onClick={()=>{onSave({desc:desc.trim(),day});onClose();}} className="flex-1 p-3 bg-teal-600 text-white rounded-xl font-bold disabled:opacity-40">儲存名稱與天數</button></div>
+            <div className="flex gap-3"><button onClick={onClose} className="flex-1 p-3 bg-slate-100 rounded-xl font-bold">關閉</button><button disabled={!desc.trim() || !dayNumbers.includes(day)} onClick={()=>{if (!dayNumbers.includes(day)) return; if (onSave({desc:desc.trim(),day}) === false) return; onClose();}} className="flex-1 p-3 bg-teal-600 text-white rounded-xl font-bold disabled:opacity-40">儲存名稱與天數</button></div>
             </section></div>;
         };
         const TravelExpenseDetails = ({ groups, total }) => {
@@ -627,7 +663,7 @@
                 <div className="space-y-3">{groups.map(group => <details key={group.day} open={!collapsedDays.includes(group.day)} className="rounded-xl border border-slate-200 overflow-hidden">
                     <summary onClick={event => { event.preventDefault(); setCollapsedDays(current => current.includes(group.day) ? current.filter(day => day !== group.day) : [...current, group.day]); }} className="cursor-pointer bg-slate-50 p-3 text-sm">
                         <span className="inline-flex flex-wrap items-center justify-between gap-x-3 gap-y-1 max-w-full align-middle">
-                            <b>第 {group.day} 天 · {group.rows.length} 筆</b><span className="font-bold text-teal-700">小計 {formatMoney(group.total)}</span>
+                            <b>第 {group.label} 天 · {group.rows.length} 筆</b><span className="font-bold text-teal-700">小計 {formatMoney(group.total)}</span>
                         </span>
                     </summary>
                     <div className="p-3 space-y-4">{group.rows.map(row=><div key={row.id}><ExpenseRows rows={[row]}/>{row.diningImport && <details className="mt-2 rounded-lg bg-slate-50 p-3"><summary className="text-xs font-bold text-teal-700 cursor-pointer">查看聚餐明細與各人負擔</summary><div className="pt-3"><DiningImportDetails snapshot={row.diningImport}/></div></details>}</div>)}</div>
@@ -672,10 +708,27 @@
         const VersionBadge = () => <span className="text-[10px] font-bold text-slate-400">v{APP_VERSION} · {BUILD_ID}</span>;
 
         const DialogModal = ({ dialog, onClose }) => {
+            const modalRef = useRef(null);
+            useEffect(() => {
+                if (!dialog) return;
+                const previous = document.activeElement;
+                const node = modalRef.current;
+                node?.querySelector('button')?.focus();
+                const handleKey = event => {
+                    if (event.key === 'Escape') { event.preventDefault(); onClose(); return; }
+                    if (event.key !== 'Tab') return;
+                    const buttons = [...(node?.querySelectorAll('button:not(:disabled)') || [])];
+                    const first = buttons[0], last = buttons.at(-1);
+                    if (event.shiftKey && (document.activeElement === first || !node?.contains(document.activeElement))) { event.preventDefault(); last?.focus(); }
+                    if (!event.shiftKey && (document.activeElement === last || !node?.contains(document.activeElement))) { event.preventDefault(); first?.focus(); }
+                };
+                document.addEventListener('keydown', handleKey);
+                return () => { document.removeEventListener('keydown', handleKey); if (previous?.isConnected) previous.focus(); };
+            }, [dialog]);
             if (!dialog) return null;
             return (
                 <div className="fixed inset-0 bg-black/60 z-[9999] flex items-center justify-center p-4 animate-fade-in">
-                    <div className="aa-dialog-modal bg-white rounded-3xl p-6 w-full max-w-sm shadow-2xl transform scale-100 transition-transform">
+                    <div ref={modalRef} role="dialog" aria-modal="true" aria-label={dialog.title || '系統提示'} className="aa-dialog-modal bg-white rounded-3xl p-6 w-full max-w-sm shadow-2xl transform scale-100 transition-transform">
                         <div className="flex items-center gap-3 mb-4">
                             {dialog.type === 'confirm' ? 
                                 <div className="w-10 h-10 rounded-full bg-orange-100 flex items-center justify-center text-orange-500"><i className="fa-solid fa-circle-question text-xl"></i></div> :
@@ -686,7 +739,7 @@
                         <p className="text-slate-600 text-sm mb-6 whitespace-pre-wrap">{dialog.message}</p>
                         <div className="flex gap-3 justify-end">
                             {dialog.type === 'confirm' && <button onClick={onClose} className="px-5 py-2.5 rounded-xl bg-slate-100 text-slate-600 font-bold hover:bg-slate-200">取消</button>}
-                            <button onClick={() => { if(dialog.onConfirm) dialog.onConfirm(); onClose(); }} className={`px-5 py-2.5 rounded-xl bg-slate-800 text-white font-bold shadow-md hover:bg-slate-900 ${/刪除|移除|撤銷/.test(dialog.title || '') ? 'aa-danger' : 'aa-primary'}`}>
+                            <button onClick={() => { onClose(); if(dialog.onConfirm) dialog.onConfirm(); }} className={`px-5 py-2.5 rounded-xl bg-slate-800 text-white font-bold shadow-md hover:bg-slate-900 ${/刪除|移除|撤銷|捨棄/.test(dialog.title || '') ? 'aa-danger' : 'aa-primary'}`}>
                                 {dialog.confirmText || '確定'}
                             </button>
                         </div>
@@ -1594,7 +1647,7 @@
                     </button>
                     {expanded && <div id="dining-wallet-options" className="px-4 pb-4 border-t border-orange-100">
                         <p className="text-xs text-slate-500 leading-relaxed py-3">和旅遊模式一樣：先點要移動的頭像，再點要併入的錢包。餐費仍按每個人計算，最後才合併結算。</p>
-                        <div role="status" aria-live="polite" className={`mb-4 rounded-xl p-3 text-xs leading-relaxed ${selectedWallet ? 'bg-orange-100 text-orange-800' : 'bg-slate-50 text-slate-500'}`}>
+                        <div ref={recoveryStatusRef} tabIndex={-1} role="status" aria-live="polite" className={`mb-4 rounded-xl p-3 text-xs leading-relaxed ${selectedWallet ? 'bg-orange-100 text-orange-800' : 'bg-slate-50 text-slate-500'}`}>
                             {selectedWallet ? <div className="flex items-start justify-between gap-2"><span className="min-w-0 break-words">已選取 <b>{selectedWallet.name}</b>{selectedWallet.members.length > 1 ? ` 的錢包（${selectedWallet.members.length} 人）` : ''}，請點選要併入的錢包。</span><button type="button" onClick={() => setSelectedId(null)} className="font-bold underline underline-offset-2 shrink-0">取消選取</button></div> : '① 點選要移動的成員或錢包　② 點選結算代表'}
                         </div>
                         <div className="grid grid-cols-2 gap-3 items-start">{wallets.map(wallet => {
@@ -1629,7 +1682,7 @@
             );
         };
 
-        const DiningMode = ({ projectData, onUpdate, showMessage, initialStep = 1, sourceProjectId, travelProjects = [], onImportToTravel }) => {
+        const DiningMode = ({ projectData, onUpdate, showMessage, onDeleteEntry, initialStep = 1, sourceProjectId, travelProjects = [], onImportToTravel }) => {
             const [step, setStep] = useState(initialStep);
             const [showReceiptItems, setShowReceiptItems] = useState(false);
             const [showInvoiceScanner, setShowInvoiceScanner] = useState(false);
@@ -1693,7 +1746,7 @@
             const selectMixedMode = () => setData(prev => ({ ...prev, splitMode: 'mixed', diningItems: prev.diningItems?.length ? prev.diningItems : [createDiningItem(prev.people)] }));
             const addDiningItem = () => setData(prev => ({ ...prev, diningItems: [...(prev.diningItems || []), createDiningItem(prev.people)] }));
             const updateDiningItem = (itemId, patch) => setData(prev => ({ ...prev, diningItems: (prev.diningItems || []).map(item => item.id === itemId ? { ...item, ...patch } : item) }));
-            const deleteDiningItem = (itemId) => setData(prev => ({ ...prev, diningItems: (prev.diningItems || []).filter(item => item.id !== itemId) }));
+            const deleteDiningItem = itemId => { const item = data.diningItems.find(entry => entry.id === itemId); if (item) onDeleteEntry?.('diningItems', item); };
             const toggleItemParticipant = (item, personId) => {
                 const participantIds = (item.participantIds || []).includes(personId)
                     ? item.participantIds.filter(id => id !== personId)
@@ -1923,7 +1976,7 @@
             );
         };
 
-        const TravelMode = ({ projectData, onUpdate, showMessage, initialTab = 'setup' }) => {
+        const TravelMode = ({ projectData, onUpdate, showMessage, onDeleteEntry, onDeleteDay, onAddDay, initialTab = 'setup' }) => {
             const normalizeTravelData = (source) => {
                 const expenses = (source?.expenses || []).map(expense => ({
                     ...expense,
@@ -1943,10 +1996,11 @@
             const [showReceiptScanner, setShowReceiptScanner] = useState(false);
             const [receiptDraft, setReceiptDraft] = useState(null);
             const [editingExpense, setEditingExpense] = useState(null);
+            const [modalDay, setModalDay] = useState(() => window.EntryRecycleBin.getDayNumbers(projectData)[0]);
             const [importedExpense,setImportedExpense] = useState(null);
             const [trip, setTrip] = useState(() => normalizeTravelData(projectData));
             const [showWalletSetup, setShowWalletSetup] = useState(false);
-            const [activeDay, setActiveDay] = useState(1);
+            const [activeDay, setActiveDay] = useState(() => window.EntryRecycleBin.getDayNumbers(projectData)[0]);
             const [compositionRevision, setCompositionRevision] = useState(0);
             const isComposingRef = useRef(false);
             const syncBaseRef = useRef(normalizeTravelData(projectData));
@@ -1956,7 +2010,7 @@
                 const normalized = normalizeTravelData(projectData);
                 syncBaseRef.current = normalized;
                 setTrip(normalized);
-                setActiveDay(currentDay => Math.min(Math.max(1, currentDay), normalized.days));
+                setActiveDay(currentDay => { const days = window.EntryRecycleBin.getDayNumbers(normalized); return days.includes(currentDay) ? currentDay : days[0]; });
             }, [projectData]);
             useEffect(() => {
                 if (isComposingRef.current) return;
@@ -1970,8 +2024,9 @@
                 setCompositionRevision(revision => revision + 1);
             };
 
-            const tripDayCount = Math.max(1, parseInt(trip.days, 10) || 1);
-            const dayNumbers = Array.from({ length: tripDayCount }, (_, index) => index + 1);
+            const dayNumbers = window.EntryRecycleBin.getDayNumbers(trip);
+            const tripDayCount = dayNumbers.length;
+            const activeDayLabel = window.EntryRecycleBin.getDayLabel(trip, activeDay);
             const activeDayExpenses = trip.expenses.filter(expense => (parseInt(expense.day, 10) || 1) === activeDay);
             const activeDayTotal = activeDayExpenses.reduce((sum, expense) => sum + (parseFloat(expense.amount) || 0), 0);
             const tripTotal = trip.expenses.reduce((sum, expense) => sum + (parseFloat(expense.amount) || 0), 0);
@@ -1985,11 +2040,7 @@
                     showMessage({message:'這位成員仍在匯入的聚餐中，請先刪除該聚餐支出再移除成員。'}); return;
                 }
                 if (trip.people.length > 1) setTrip(prev => ({ ...prev, people: prev.people.filter(p => p.id !== id) })); };
-            const addTripDay = () => {
-                const nextDay = tripDayCount + 1;
-                setTrip(prev => ({ ...prev, days: nextDay }));
-                setActiveDay(nextDay);
-            };
+            const addTripDay = async () => { const nextDay = await onAddDay?.(); if (nextDay) setActiveDay(nextDay); };
 
             const importReceiptItems = items => {
                 if (!trip.people.length) { showMessage({ message: '請先新增成員，再匯入品項。' }); return false; }
@@ -2004,29 +2055,43 @@
                         receiptMeta: { source: 'receipt-items-ocr', currency: 'TWD', originalAmount: item.amount, exchangeRate: 1, quantity: item.quantity, batchId, importedAt }
                     }))]
                 }));
-                showMessage({ title: '品項已新增', message: `已追加 ${items.length} 筆至第 ${importedDay} 天。請逐筆編輯付款人與分攤者；服務費／折扣請另行核對。` });
+                showMessage({ title: '品項已新增', message: `已追加 ${items.length} 筆至第 ${window.EntryRecycleBin.getDayLabel(trip, importedDay)} 天。請逐筆編輯付款人與分攤者；服務費／折扣請另行核對。` });
                 return true;
             };
             const addExpense = (newEx) => {
                 const expenseDay = Math.max(1, parseInt(newEx.day, 10) || activeDay);
-                setTrip(prev => ({ ...prev, expenses: [...prev.expenses, { ...newEx, day: expenseDay, id: Date.now() }] }));
+                setTrip(prev => ({ ...prev, expenses: [...prev.expenses, { ...newEx, day: expenseDay, id: createInviteToken() }] }));
                 setActiveDay(expenseDay);
             };
-            const updateExpense = (updated) => {
-                const expenseDay = Math.max(1, parseInt(updated.day, 10) || 1);
-                setTrip(prev => ({ ...prev, expenses: prev.expenses.map(expense => expense.id === updated.id ? { ...updated, day: expenseDay } : expense) }));
-                setActiveDay(expenseDay);
+            const mergeExpenseDraft = (original, patch) => {
+                const current = trip.expenses.find(expense => expense.id === original?.id);
+                if (!current || (current._recoveryGeneration || 0) !== (original?._recoveryGeneration || 0)) {
+                    showMessage({ title: '帳目已被刪除或還原', message: '這個編輯視窗的原始帳目已變更，未覆蓋目前的帳目。已填內容仍保留；請先確認最新帳目。' });
+                    return false;
+                }
+                const changes = {};
+                Object.keys(patch).forEach(field => {
+                    if (field !== 'id' && field !== '_recoveryGeneration' && !dataValuesEqual(original[field], patch[field])) changes[field] = patch[field];
+                });
+                setTrip(prev => ({ ...prev, expenses: prev.expenses.map(expense => expense.id === original.id ? { ...expense, ...changes } : expense) }));
+                setActiveDay(Math.max(1, parseInt(changes.day ?? current.day, 10) || 1));
+                return true;
             };
-            const deleteExpense = (id) => setTrip(prev => ({ ...prev, expenses: prev.expenses.filter(e => e.id !== id) }));
+            const updateExpense = updated => mergeExpenseDraft(editingExpense, updated);
+            const saveImportedExpense = patch => mergeExpenseDraft(importedExpense, patch);
+            const deleteExpense = id => { const item = trip.expenses.find(entry => entry.id === id); if (item) onDeleteEntry?.('expenses', item); };
             const handleEditClick = (expense) => {
                 if (expense.diningImport) { setImportedExpense(expense); return; }
                 setReceiptDraft(null);
                 setEditingExpense(expense);
+                setModalDay(Math.max(1, parseInt(expense.day, 10) || 1));
                 setActiveDay(Math.max(1, parseInt(expense.day, 10) || 1));
                 setShowAddModal(true);
             };
             const handleReceiptDraft = draft => {
-                const draftDay = Math.min(tripDayCount, Math.max(1, parseInt(draft.day, 10) || activeDay));
+                const proposedDay = parseInt(draft.day, 10) || activeDay;
+                const draftDay = dayNumbers.includes(proposedDay) ? proposedDay : activeDay;
+                setModalDay(draftDay);
                 setReceiptDraft({ ...draft, day: draftDay });
                 setEditingExpense(null);
                 setActiveDay(draftDay);
@@ -2052,26 +2117,29 @@
                         {tab === 'expenses' && (
                             <div className="p-4 pb-24">
                                 <div className="mb-4">
-                                    <div className="flex items-end justify-between gap-3 mb-3">
+                                    <div className="aa-day-heading flex flex-wrap items-end justify-between gap-3 mb-3">
                                         <div><p className="text-sm font-bold text-slate-700">旅遊日程</p><p className="text-xs text-slate-400 mt-1">可隨時切回前面的天數新增或編輯</p></div>
-                                        <button type="button" onClick={addTripDay} className="shrink-0 px-3 py-2 rounded-xl bg-blue-50 text-blue-600 border border-blue-100 text-xs font-bold"><i className="fa-solid fa-plus mr-1"></i>新增一天</button>
+                                        <div className="aa-day-actions flex flex-wrap gap-2">
+                                            <button type="button" onClick={addTripDay} className="shrink-0 px-3 py-2 rounded-xl bg-blue-50 text-blue-600 border border-blue-100 text-xs font-bold"><i className="fa-solid fa-plus mr-1"></i>新增一天</button>
+                                            <button type="button" disabled={tripDayCount <= 1} onClick={() => onDeleteDay?.(window.EntryRecycleBin.daySnapshot(trip, activeDay))} aria-label={`刪除第 ${activeDayLabel} 天`} title="整天與支出移入回收桶，保留七天；至少保留一天" className="aa-delete-day px-3 py-2 rounded-xl border text-xs font-bold disabled:opacity-40"><i className="fa-solid fa-trash mr-1" aria-hidden="true"></i>刪除這一天</button>
+                                        </div>
                                     </div>
                                     <div className="flex gap-2 overflow-x-auto pb-2 no-scrollbar">
                                         {dayNumbers.map(day => {
                                             const expenseCount = trip.expenses.filter(expense => (parseInt(expense.day, 10) || 1) === day).length;
                                             const selected = activeDay === day;
-                                            return <button type="button" key={day} aria-pressed={selected} onClick={() => setActiveDay(day)} className={`shrink-0 min-w-[88px] px-4 py-3 rounded-xl border text-sm font-bold transition ${selected ? 'bg-blue-600 text-white border-blue-600 shadow-md' : 'bg-white text-slate-500 border-slate-200'}`}>第 {day} 天 <span className={`ml-1 text-[10px] ${selected ? 'text-blue-100' : 'text-slate-300'}`}>{expenseCount} 筆</span></button>;
+                                            return <button type="button" key={day} aria-pressed={selected} onClick={() => setActiveDay(day)} className={`shrink-0 min-w-[88px] px-4 py-3 rounded-xl border text-sm font-bold transition ${selected ? 'bg-blue-600 text-white border-blue-600 shadow-md' : 'bg-white text-slate-500 border-slate-200'}`}>第 {window.EntryRecycleBin.getDayLabel(trip, day)} 天 <span className={`ml-1 text-[10px] ${selected ? 'text-blue-100' : 'text-slate-300'}`}>{expenseCount} 筆</span></button>;
                                         })}
                                     </div>
                                 </div>
                                 <button type="button" onClick={() => setShowReceiptItems(true)} className="w-full mb-4 p-3 rounded-xl bg-teal-50 border border-teal-200 text-teal-700 font-bold">拍帳單批次新增</button>
                                 <div className="aa-day-summary bg-teal-600 text-white p-6 rounded-2xl shadow-lg mb-6">
-                                    <div className="flex items-start justify-between gap-3"><p className="text-teal-100 text-sm">第 {activeDay} 天支出</p><span className="text-xs bg-teal-700/50 px-3 py-1 rounded-full whitespace-nowrap">旅程累計 {formatMoney(tripTotal)}</span></div>
+                                    <div className="flex items-start justify-between gap-3"><p className="text-teal-100 text-sm">第 {activeDayLabel} 天支出</p><span className="text-xs bg-teal-700/50 px-3 py-1 rounded-full whitespace-nowrap">旅程累計 {formatMoney(tripTotal)}</span></div>
                                     <h2 className="text-4xl font-bold mt-1">{formatMoney(activeDayTotal)}</h2>
                                     <div className="mt-4 flex gap-2 text-sm text-teal-100"><span className="bg-teal-700/50 px-3 py-1 rounded-full">{activeDayExpenses.length} 筆</span><span className="bg-teal-700/50 px-3 py-1 rounded-full">{trip.people.length} 人</span></div>
                                 </div>
                                 <div className="space-y-3">
-                                    {activeDayExpenses.length === 0 && <div className="bg-white border border-dashed border-slate-200 rounded-2xl py-10 px-6 text-center"><i className="fa-solid fa-receipt text-2xl text-slate-300"></i><p className="text-sm font-bold text-slate-500 mt-3">第 {activeDay} 天還沒有支出</p><p className="text-xs text-slate-400 mt-1">點右下角的加號新增第一筆</p></div>}
+                                    {activeDayExpenses.length === 0 && <div className="bg-white border border-dashed border-slate-200 rounded-2xl py-10 px-6 text-center"><i className="fa-solid fa-receipt text-2xl text-slate-300"></i><p className="text-sm font-bold text-slate-500 mt-3">第 {activeDayLabel} 天還沒有支出</p><p className="text-xs text-slate-400 mt-1">點右下角的加號新增第一筆</p></div>}
                                     {activeDayExpenses.map((exp) => (
                                         <div key={exp.id} className="bg-white p-4 rounded-xl shadow-sm border border-slate-100">
                                             <div className="flex justify-between items-start mb-2"><div><p className="font-bold text-slate-800">{exp.desc}</p><div className="flex items-center gap-1 mt-1"><i className="fa-solid fa-arrow-right-arrow-left text-xs text-slate-400"></i><p className="text-xs text-slate-500">{Object.keys(exp.payers).map(pid => getPersonNameHelper(pid, trip.people)).join(', ')} 付款</p></div>{exp.receiptMeta && <div className="flex items-center gap-1 mt-1"><i className="fa-solid fa-camera text-[10px] text-blue-400"></i><p className="text-[11px] text-blue-500">{exp.receiptMeta.currency !== 'TWD' ? `${exp.receiptMeta.currency} ${exp.receiptMeta.originalAmount} × ${exp.receiptMeta.exchangeRate}` : exp.receiptMeta.source === 'taiwan-einvoice' ? `電子發票 ${exp.receiptMeta.invoiceNumber || ''}` : '收據匯入'}</p></div>}</div><div className="flex items-center gap-2"><span className="font-bold text-teal-600">{formatMoney(exp.amount)}</span><button onClick={() => handleEditClick(exp)} className="p-2 bg-slate-50 rounded text-slate-400" aria-label={`編輯${exp.desc}`}><i className="fa-solid fa-pencil"></i></button><button onClick={() => deleteExpense(exp.id)} className="p-2 bg-slate-50 rounded text-slate-400 hover:text-red-500" aria-label={`刪除${exp.desc}`}><i className="fa-solid fa-trash"></i></button></div></div>
@@ -2079,15 +2147,15 @@
                                         </div>
                                     ))}
                                 </div>
-                                <button onClick={() => { setEditingExpense(null); setReceiptDraft(null); setShowAddModal(true); }} aria-label={`新增第 ${activeDay} 天支出`} className="fixed bottom-24 right-6 w-14 h-14 bg-blue-600 text-white rounded-full shadow-xl flex items-center justify-center z-10"><i className="fa-solid fa-plus text-xl"></i></button>
+                                <button onClick={() => { setEditingExpense(null); setReceiptDraft(null); setModalDay(activeDay); setShowAddModal(true); }} aria-label={`新增第 ${activeDayLabel} 天支出`} className="fixed bottom-24 right-6 w-14 h-14 bg-blue-600 text-white rounded-full shadow-xl flex items-center justify-center z-10"><i className="fa-solid fa-plus text-xl"></i></button>
                             </div>
                         )}
                         {tab === 'settle' && <SettlementView trip={trip} showMessage={showMessage} />}
                     </div>
-                    {importedExpense && <ImportedDiningEditModal expense={importedExpense} dayCount={tripDayCount} onClose={()=>setImportedExpense(null)} onSave={patch=>setTrip(prev=>({...prev,expenses:prev.expenses.map(e=>e.id===importedExpense.id?{...e,...patch}:e)}))}/>}
-                    {showAddModal && <AddExpenseModal people={trip.people} dayCount={tripDayCount} defaultDay={activeDay} initialData={editingExpense} prefillData={receiptDraft} onScanReceipt={() => { setShowAddModal(false); setShowReceiptScanner(true); }} onClose={() => { setShowAddModal(false); setEditingExpense(null); setReceiptDraft(null); }} onAdd={addExpense} onUpdate={updateExpense} getPersonName={(id) => getPersonNameHelper(id, trip.people)} showMessage={showMessage} />}
+                    {importedExpense && <ImportedDiningEditModal expense={importedExpense} dayNumbers={dayNumbers} onClose={()=>setImportedExpense(null)} onSave={saveImportedExpense}/>}
+                    {showAddModal && <AddExpenseModal people={trip.people} dayNumbers={dayNumbers} defaultDay={modalDay} initialData={editingExpense} prefillData={receiptDraft} onScanReceipt={() => { setShowAddModal(false); setShowReceiptScanner(true); }} onClose={() => { setShowAddModal(false); setEditingExpense(null); setReceiptDraft(null); }} onAdd={addExpense} onUpdate={updateExpense} getPersonName={(id) => getPersonNameHelper(id, trip.people)} showMessage={showMessage} />}
                     {showReceiptItems && <ReceiptItemsModal onClose={() => setShowReceiptItems(false)} onApply={importReceiptItems} />}
-                    {showReceiptScanner && <TravelReceiptCaptureModal people={trip.people} defaultDay={activeDay} onClose={() => { setShowReceiptScanner(false); setShowAddModal(true); }} onCreateDraft={handleReceiptDraft} showMessage={showMessage} />}
+                    {showReceiptScanner && <TravelReceiptCaptureModal people={trip.people} defaultDay={modalDay} onClose={() => { setShowReceiptScanner(false); setShowAddModal(true); }} onCreateDraft={handleReceiptDraft} showMessage={showMessage} />}
                 </div>
             );
         };
@@ -2099,7 +2167,7 @@
             const expenseGroups = getTravelExpenseGroups(trip);
             const expenseCount = expenseGroups.reduce((sum, group) => sum + group.rows.length, 0);
             const expenseTotal = expenseGroups.reduce((sum, group) => sum + group.total, 0);
-            const settlementText = [`${trip.name || '本次旅遊'}｜全旅程結算`, ...transactions.map(transaction => `．${getPersonNameHelper(transaction.from, trip.people)} 付給 ${getPersonNameHelper(transaction.to, trip.people)} ${formatMoney(Math.round(transaction.amount))}`), ...(transactions.length ? [] : ['無需轉帳']), '', '費用明細', ...expenseGroups.flatMap(group => [`第 ${group.day} 天｜小計 ${formatMoney(group.total)}`, ...group.rows.map(row => `．${row.name} ${formatMoney(row.amount)}`)]), `全旅程合計 ${formatMoney(expenseTotal)}`].join('\n');
+            const settlementText = [`${trip.name || '本次旅遊'}｜全旅程結算`, ...transactions.map(transaction => `．${getPersonNameHelper(transaction.from, trip.people)} 付給 ${getPersonNameHelper(transaction.to, trip.people)} ${formatMoney(Math.round(transaction.amount))}`), ...(transactions.length ? [] : ['無需轉帳']), '', '費用明細', ...expenseGroups.flatMap(group => [`第 ${group.label} 天｜小計 ${formatMoney(group.total)}`, ...group.rows.map(row => `．${row.name} ${formatMoney(row.amount)}`)]), `全旅程合計 ${formatMoney(expenseTotal)}`].join('\n');
 
 
             return (
@@ -2116,7 +2184,7 @@
             );
         };
 
-        const AddExpenseModal = ({ people, dayCount, defaultDay, initialData, prefillData, onScanReceipt, onClose, onAdd, onUpdate, getPersonName, showMessage }) => {
+        const AddExpenseModal = ({ people, dayNumbers, defaultDay, initialData, prefillData, onScanReceipt, onClose, onAdd, onUpdate, getPersonName, showMessage }) => {
             const seedData = initialData || prefillData;
             const [desc, setDesc] = useState(seedData?.desc || ''); 
             const [amount, setAmount] = useState(seedData?.amount || ''); 
@@ -2124,8 +2192,9 @@
             const [mainPayer, setMainPayer] = useState(people[0]?.id); 
             const [multiPayers, setMultiPayers] = useState({}); 
             const [splitExcludes, setSplitExcludes] = useState([]);
-            const safeDayCount = Math.max(1, parseInt(dayCount, 10) || 1);
-            const [expenseDay, setExpenseDay] = useState(Math.min(safeDayCount, Math.max(1, parseInt(seedData?.day, 10) || parseInt(defaultDay, 10) || 1)));
+            const safeDays = dayNumbers?.length ? dayNumbers : [1];
+            const initialDay = parseInt(seedData?.day, 10) || parseInt(defaultDay, 10) || safeDays[0];
+            const [expenseDay, setExpenseDay] = useState(safeDays.includes(initialDay) ? initialDay : safeDays[0]);
             
             useEffect(() => { 
                 const seed = initialData || prefillData;
@@ -2144,7 +2213,7 @@
                         setMultiPayers({});
                     } 
                     setSplitExcludes(seed.splitBetween ? people.filter(p => !seed.splitBetween.includes(p.id)).map(p => p.id) : []);
-                    setExpenseDay(Math.min(safeDayCount, Math.max(1, parseInt(seed.day, 10) || parseInt(defaultDay, 10) || 1)));
+                    setExpenseDay(parseInt(seed.day, 10) || parseInt(defaultDay, 10) || safeDays[0]);
                 } else {
                     setDesc('');
                     setAmount('');
@@ -2152,11 +2221,12 @@
                     setMainPayer(people[0]?.id);
                     setMultiPayers({});
                     setSplitExcludes([]);
-                    setExpenseDay(Math.min(safeDayCount, Math.max(1, parseInt(defaultDay, 10) || 1)));
+                    setExpenseDay(parseInt(defaultDay, 10) || safeDays[0]);
                 }
             }, [initialData, prefillData, defaultDay]);
             
             const handleSubmit = () => { 
+                if (!safeDays.includes(expenseDay)) return showMessage({message: '這一天已被刪除；請重新選擇天數，已填內容仍保留。'});
                 if (!desc.trim() || !amount) return showMessage({message: '請填寫完整'});
                 const total = parseFloat(amount);
                 if (!Number.isFinite(total) || total <= 0) return showMessage({message: '金額必須大於 0'});
@@ -2177,7 +2247,8 @@
                 if (split.length === 0) return showMessage({message: '請至少選擇一位分攤成員'});
                 const receiptMeta = initialData?.receiptMeta || prefillData?.receiptMeta || null;
                 const data = { desc: desc.trim(), amount: total, payers, splitBetween: split, day: expenseDay, ...(receiptMeta ? { receiptMeta } : {}) };
-                initialData ? onUpdate({...data, id: initialData.id}) : onAdd(data); 
+                const saved = initialData ? onUpdate({...data, id: initialData.id}) : onAdd(data);
+                if (saved === false) return;
                 onClose(); 
             };
             
@@ -2198,7 +2269,7 @@
                         )}
                         {seedData?.receiptMeta && <div className="mb-4 rounded-xl bg-blue-50 border border-blue-100 p-3 text-xs text-blue-700"><i className="fa-solid fa-receipt mr-1"></i>{seedData.receiptMeta.source === 'taiwan-einvoice' ? '已由臺灣電子發票帶入，請繼續選擇付款人與分攤者。' : `已由海外收據帶入：${seedData.receiptMeta.currency} ${seedData.receiptMeta.originalAmount}，目前以 ${formatMoney(amount || 0)} 記帳。`}</div>}
                         <div className="space-y-4">
-                            <div><label className="text-xs text-slate-500 font-bold">記在哪一天？</label><select className="w-full p-3 border rounded-xl mt-1 bg-slate-50 font-bold text-slate-700" value={expenseDay} onChange={e => setExpenseDay(parseInt(e.target.value, 10))}>{Array.from({ length: safeDayCount }, (_, index) => index + 1).map(day => <option key={day} value={day}>第 {day} 天</option>)}</select></div>
+                            {!safeDays.includes(expenseDay) && <p role="alert" className="text-sm text-red-600 mb-3">原本的天數已被刪除，請重新選擇天數。已填內容仍保留。</p>}<div><label className="text-xs text-slate-500 font-bold">記在哪一天？</label><select className="w-full p-3 border rounded-xl mt-1 bg-slate-50 font-bold text-slate-700" value={safeDays.includes(expenseDay) ? expenseDay : ''} onChange={e => setExpenseDay(parseInt(e.target.value, 10))}>{!safeDays.includes(expenseDay) && <option value="" disabled>請重新選擇有效天數</option>}{safeDays.map((day,index) => <option key={day} value={day}>第 {index+1} 天</option>)}</select></div>
                             <div><label className="text-xs text-slate-500 font-bold">品項</label><input className="w-full p-3 border rounded-xl mt-1 bg-slate-50" value={desc} onChange={event => applyInputValue(event, setDesc)} /></div>
                             <div><label className="text-xs text-slate-500 font-bold">記帳金額（新臺幣）</label><input type="number" className="w-full p-3 border rounded-xl mt-1 text-xl font-bold bg-slate-50" value={amount} onChange={e => setAmount(e.target.value)} /></div>
                             <div className="bg-slate-50 p-4 rounded-xl"><div className="flex justify-between mb-2"><label className="text-xs font-bold text-slate-500">付款人</label><button onClick={() => setPayerMode(m => m === 'single' ? 'multi' : 'single')} className="text-xs text-teal-600 underline">{payerMode === 'single' ? '切換多人' : '切換單人'}</button></div>{payerMode === 'single' ? <select className="w-full p-3 border rounded-xl bg-white" value={mainPayer} onChange={e => setMainPayer(parseInt(e.target.value))}>{people.map(p => <option key={p.id} value={p.id}>{getPersonName(p.id)}</option>)}</select> : <div className="space-y-2">{people.map(p => <div key={p.id} className="flex justify-between items-center"><span className="text-sm">{getPersonName(p.id)}</span><input type="number" className="w-24 p-2 border rounded text-right" value={multiPayers[p.id]||''} onChange={event => applyInputValue(event, value => setMultiPayers(prev => ({ ...prev, [p.id]: value })))} /></div>)}</div>}</div>
@@ -2216,6 +2287,14 @@
         const App = () => {
             const [showSplash, setShowSplash] = useState(true);
             const [authReady, setAuthReady] = useState(false);
+            const [splashHoldComplete, setSplashHoldComplete] = useState(false);
+
+            // Keep the cover visible for one additional second after startup is ready.
+            useEffect(() => {
+                if (!authReady || showSplash) return;
+                const timer = window.setTimeout(() => setSplashHoldComplete(true), 1000);
+                return () => window.clearTimeout(timer);
+            }, [authReady, showSplash]);
             const [authError, setAuthError] = useState('');
             const [authPersistenceWarning, setAuthPersistenceWarning] = useState('');
             const [isLoggingIn, setIsLoggingIn] = useState(false);
@@ -2235,6 +2314,11 @@
             const activeProjectRef = useRef(null);
             const pendingProjectUpdateRef = useRef(null);
             const syncInFlightRef = useRef(false);
+            const recoveryStatusRef = useRef(null);
+            const [recoveryBusy, setRecoveryBusy] = useState(false);
+            const recoveryBusyRef = useRef(false);
+            const [showRecovery, setShowRecovery] = useState(false);
+            const [syncConflict, setSyncConflict] = useState(null);
             const processedInviteRef = useRef(false);
             const ensuredIndexKeysRef = useRef(new Set());
 
@@ -2581,6 +2665,7 @@
                     ownerName: user.displayName || '',
                     createdAt: now,
                     updatedAt: now,
+                    recoveryWriteToken: createInviteToken(), recoveryWriteRevision: 1, recycleBinNextExpiry: null,
                     data: type === 'dining'
                         ? { title: '', date: now.split('T')[0], people: [{ id: 1, name: '', payerId: 1 }, { id: 2, name: '', payerId: 2 }], totalBill: '', serviceChargeType: 'percent', serviceChargeValue: 10, splitMode: 'even', customAmounts: {}, diningItems: [], billPayerId: 1, invoiceMeta: null }
                         : { name: '', days: 1, people: [{id: 1, name: '', payerId: 1}, {id: 2, name: '', payerId: 2}], expenses: [] }
@@ -2669,11 +2754,16 @@
                 const pendingUpdate = pendingProjectUpdateRef.current;
                 const currentUser = auth.currentUser;
                 if (!pendingUpdate?.operations?.length || !currentUser) return;
+                if (pendingUpdate.actorUid && pendingUpdate.actorUid !== currentUser.uid) {
+                    setSyncConflict({ projectId: pendingUpdate.projectId, message: '這份草稿屬於先前登入的帳號，請切回原帳號或先下載備份。' });
+                    return;
+                }
 
                 const projectId = pendingUpdate.projectId;
                 const batchLength = pendingUpdate.operations.length;
                 const batchOperations = pendingUpdate.operations.slice(0, batchLength);
                 syncInFlightRef.current = true;
+                const actionToken = createInviteToken(), actionTime = Date.now();
                 let syncFailed = false;
 
                 try {
@@ -2681,8 +2771,10 @@
                         const projectRef = projectRefFor(projectId);
                         const snapshot = await transaction.get(projectRef);
                         if (!snapshot.exists()) throw new Error('找不到共編專案，可能已被刪除。');
+                        if (auth.currentUser?.uid !== currentUser.uid) throw new Error('登入帳號已變更，未送出這份草稿。');
 
                         const latestProject = snapshot.data();
+                        assertRecoverableOperations(latestProject, batchOperations);
                         const mergedData = applyDataOperations(latestProject.data || {}, batchOperations);
                         const nextProject = {
                             ...latestProject,
@@ -2691,10 +2783,14 @@
                             updatedAt: new Date().toISOString(),
                             lastUpdatedBy: currentUser.uid
                         };
-                        transaction.set(projectRef, nextProject);
-                        return { id: snapshot.id, ...nextProject };
+                        const auditedProject = window.EntryRecycleBin.appendHistory(latestProject, nextProject, recoveryActor(currentUser), actionToken, actionTime);
+                        auditedProject.recoveryWriteToken = actionToken;
+                        auditedProject.recoveryWriteRevision = (Number(latestProject.recoveryWriteRevision) || 0) + 1;
+                        transaction.set(projectRef, auditedProject);
+                        return { id: snapshot.id, ...auditedProject };
                     });
 
+                    setSyncConflict(null);
                     const currentPending = pendingProjectUpdateRef.current;
                     let remainingOperations = [];
                     if (currentPending?.projectId === projectId) {
@@ -2719,7 +2815,8 @@
                 } catch (error) {
                     syncFailed = true;
                     console.error('Transaction sync error:', error);
-                    showMessage({ title: '同步失敗', message: '這次修改仍保留在畫面上，但尚未同步到雲端；請確認網路後再修改一次。' });
+                    setSyncConflict({ projectId, message: error.message || '目前無法連線。' });
+                    showMessage({ title: error.code === 'collab-conflict' ? '共編內容已變更' : '同步失敗', message: `${error.message || '目前無法連線。'}\n\n這次修改尚未寫入雲端。未同步草稿仍保留；可下載備份，再載入最新帳目。` });
                 } finally {
                     syncInFlightRef.current = false;
                     if (!syncFailed && pendingProjectUpdateRef.current?.operations?.length) {
@@ -2729,18 +2826,166 @@
                 }
             };
 
+            const runRecoveryAction = async (projectId, action, payload) => {
+                if (recoveryBusyRef.current) return null;
+                recoveryBusyRef.current = true;
+                setRecoveryBusy(true);
+                try {
+                    const currentUser = auth.currentUser;
+                    if (!currentUser || activeProjectRef.current?.id !== projectId) throw new Error('請先開啟原本的帳本。');
+                    if (syncInFlightRef.current) throw new Error('帳目正在同步，請稍候再試。');
+                    if (debounceTimer.current) clearTimeout(debounceTimer.current);
+                    await flushPendingProjectUpdate();
+                    if (syncInFlightRef.current || pendingProjectUpdateRef.current?.operations?.length) throw new Error('還有尚未同步的修改，請先處理未同步草稿再試。');
+                    if (auth.currentUser?.uid !== currentUser.uid || activeProjectRef.current?.id !== projectId) throw new Error('登入或帳本已變更，這次操作未執行。');
+                    const token = createInviteToken(), now = Date.now();
+                    const committed = await runTransaction(db, async transaction => {
+                        const ref = projectRefFor(projectId), snapshot = await transaction.get(ref);
+                        if (!snapshot.exists()) throw new Error('找不到原本的帳本。');
+                        if (auth.currentUser?.uid !== currentUser.uid) throw new Error('登入帳號已變更，這次操作未執行。');
+                        const latest = snapshot.data(), api = window.EntryRecycleBin, actor = recoveryActor(currentUser);
+                        const result = action === 'delete' ? api.moveToBin(latest, payload, actor, token, now)
+                            : action === 'restore' ? api.restore(latest, payload, actor, token, now)
+                            : api.addDay(latest, actor, token, now);
+                        const next = { ...result, recoveryWriteToken: token, recoveryWriteRevision: (Number(latest.recoveryWriteRevision) || 0) + 1, updatedAt: new Date(now).toISOString(), lastUpdatedBy: currentUser.uid };
+                        transaction.set(ref, next);
+                        return { ...next, id: snapshot.id };
+                    });
+                    const display = { ...committed, currentUserRole: committed.ownerId === currentUser.uid ? 'owner' : 'editor' };
+                    if (activeProjectRef.current?.id === projectId) {
+                        activeProjectRef.current = display;
+                        setActiveProjectData(display);
+                    }
+                    setProjects(previous => previous.map(project => project.id === projectId ? display : project));
+                    if (action !== 'add') showMessage({ title: action === 'restore' ? '已還原' : '已移到回收桶', message: action === 'restore' ? '帳目已還原，修改紀錄也已更新。' : '可在帳本上方的「回收桶與紀錄」找回，保留七天。' });
+                    return committed;
+                } catch (error) {
+                    console.error('Recovery action failed:', error);
+                    showMessage({ title: '這次操作未完成', message: error.message || '請確認網路與共編權限後再試。' });
+                    return null;
+                } finally {
+                    recoveryBusyRef.current = false;
+                    setRecoveryBusy(false);
+                }
+            };
+
+            const requestDeleteEntry = (collection, item) => {
+                const project = activeProjectRef.current;
+                if (!project) return;
+                const label = item.desc || item.name || '未命名帳目';
+                setDialog({ type: 'confirm', title: '刪除這筆帳目', confirmText: '移到回收桶',
+                    message: `確定刪除「${label}」嗎？\n\n刪除後可在回收桶還原，保留七天。若共編者已修改這筆帳目，會請你重新確認。`,
+                    onConfirm: () => runRecoveryAction(project.id, 'delete', { kind: 'entry', collection, item: cloneDataValue(item) }) });
+            };
+
+            const requestDeleteTravelDay = snapshot => {
+                const project = activeProjectRef.current;
+                if (!project || project.type !== 'travel') return;
+                const days = window.EntryRecycleBin.getDayNumbers(project.data);
+                if (days.length <= 1) return showMessage({ message: '至少需要保留一天。' });
+                const label = window.EntryRecycleBin.getDayLabel(project.data, snapshot.day);
+                setDialog({ type: 'confirm', title: `刪除第 ${label} 天`, confirmText: '整天移到回收桶',
+                    message: `這一天有 ${snapshot.expenses.length} 筆支出。確定將整天及所有支出移到回收桶嗎？\n只填品項或金額為 0 的紀錄也會一併保留。\n\n七天內可以整天還原。若有人剛新增或修改當天帳目，本次會停止，請重新確認。`,
+                    onConfirm: () => runRecoveryAction(project.id, 'delete', { kind: 'day', snapshot: cloneDataValue(snapshot) }) });
+            };
+
+            const addTravelDay = async () => {
+                const id = activeProjectRef.current?.id;
+                if (!id) return null;
+                const result = await runRecoveryAction(id, 'add');
+                return result ? window.EntryRecycleBin.getDayNumbers(result.data).at(-1) : null;
+            };
+
+            const downloadPendingDraft = () => {
+                const pending = pendingProjectUpdateRef.current;
+                if (!pending) return;
+                const blob = new Blob([JSON.stringify({ exportedAt: new Date().toISOString(), projectId: pending.projectId, operations: pending.operations }, null, 2)], { type: 'application/json' });
+                const url = URL.createObjectURL(blob), link = document.createElement('a');
+                link.href = url; link.download = `aa-2gether-unsynced-${Date.now()}.json`; link.click();
+                setTimeout(() => URL.revokeObjectURL(url), 1000);
+            };
+
+            const requestDiscardConflictingDraft = () => setDialog({ type: 'confirm', title: '捨棄未同步草稿', confirmText: '捨棄並載入最新',
+                message: '這會捨棄本機尚未同步的修改，雲端帳目保留。建議先下載未同步修改備份。',
+                onConfirm: async () => {
+                    if (syncInFlightRef.current || recoveryBusyRef.current) return;
+                    const id = activeProjectRef.current?.id;
+                    recoveryBusyRef.current = true; setRecoveryBusy(true);
+                    try {
+                        const snapshot = await getDoc(projectRefFor(id));
+                        if (!snapshot.exists() || activeProjectRef.current?.id !== id) throw new Error('目前無法載入原帳本。');
+                        if (debounceTimer.current) clearTimeout(debounceTimer.current);
+                        pendingProjectUpdateRef.current = null;
+                        const latest = { ...snapshot.data(), id, currentUserRole: activeProjectRef.current.currentUserRole };
+                        activeProjectRef.current = latest; setActiveProjectData(latest); setSyncConflict(null);
+                    } catch (error) { showMessage({ title: '草稿仍保留', message: error.message }); }
+                    finally { recoveryBusyRef.current = false; setRecoveryBusy(false); }
+                } });
+
+            useEffect(() => {
+                if (!user || !currentProjectId || view !== 'activeProject') return;
+                let disposed = false;
+                const removeExpiredTrash = async () => {
+                    try {
+                        await runTransaction(db, async transaction => {
+                            const ref = projectRefFor(currentProjectId), snapshot = await transaction.get(ref);
+                            if (!snapshot.exists() || disposed) return;
+                            const latest = snapshot.data();
+                            const cleaned = window.EntryRecycleBin.pruneExpired(latest, Date.now());
+                            if (!latest.recoveryWriteToken || latest.recycleBinNextExpiry !== cleaned.recycleBinNextExpiry || !dataValuesEqual(latest.data?.recycleBin, cleaned.data?.recycleBin)) {
+                                cleaned.recoveryWriteToken = createInviteToken();
+                                cleaned.recoveryWriteRevision = (Number(latest.recoveryWriteRevision) || 0) + 1;
+                                transaction.set(ref, cleaned);
+                            }
+                        });
+                    } catch (error) { console.warn('回收桶清理將於下次連線重試：', error); }
+                };
+                removeExpiredTrash();
+                const timer = window.setInterval(removeExpiredTrash, 60000);
+                return () => { disposed = true; window.clearInterval(timer); };
+            }, [user, currentProjectId, view]);
+
+            const leaveActiveProject = async () => {
+                if (recoveryBusyRef.current || syncInFlightRef.current) return showMessage({ message: '帳目正在同步，請稍候再回首頁。' });
+                if (debounceTimer.current) clearTimeout(debounceTimer.current);
+                await flushPendingProjectUpdate();
+                if (pendingProjectUpdateRef.current?.operations?.length) return showMessage({ title: '請先處理未同步草稿', message: '仍有修改尚未寫入雲端。請下載備份，再處理草稿，完成後即可切換帳本。' });
+                setShowCollaborationManager(false); setShowRecovery(false); setView('projectList'); setCurrentProjectId(null); setActiveProjectData(null);
+            };
+
+            useEffect(() => {
+                const beforeUnload = event => {
+                    if (!pendingProjectUpdateRef.current?.operations?.length && !syncInFlightRef.current && !recoveryBusyRef.current) return;
+                    event.preventDefault(); event.returnValue = '';
+                };
+                window.addEventListener('beforeunload', beforeUnload);
+                return () => window.removeEventListener('beforeunload', beforeUnload);
+            }, []);
+
+            useEffect(() => {
+                if (!recoveryBusy) return;
+                const previous = document.activeElement;
+                recoveryStatusRef.current?.focus();
+                return () => { if (previous?.isConnected) previous.focus(); };
+            }, [recoveryBusy]);
+
             const updateCurrentData = (newData, baseData) => {
                 const currentProject = activeProjectRef.current || activeProjectData;
                 if (!currentProject || !currentProjectId) return;
 
                 const operations = buildDataOperations(baseData || currentProject.data || {}, newData);
                 if (!operations.length) return;
+                if (recoveryBusyRef.current) return;
 
                 const existingPending = pendingProjectUpdateRef.current;
+                if (existingPending?.operations?.length && existingPending.projectId !== currentProjectId) {
+                    showMessage({ title: '另一個帳本還有草稿', message: '請先返回原帳本處理未同步草稿，再修改這個帳本。' });
+                    return;
+                }
                 const pendingOperations = existingPending?.projectId === currentProjectId
                     ? [...existingPending.operations, ...operations]
                     : operations;
-                pendingProjectUpdateRef.current = { projectId: currentProjectId, operations: pendingOperations };
+                pendingProjectUpdateRef.current = { projectId: currentProjectId, actorUid: auth.currentUser?.uid, operations: pendingOperations };
 
                 const optimisticData = applyDataOperations(currentProject.data || {}, operations);
                 const updatedProject = {
@@ -2770,6 +3015,7 @@
                     const sourceRef=projectRefFor(sourceId),targetRef=projectRefFor(request.targetProjectId);
                     const sourceSnap=await transaction.get(sourceRef),targetSnap=await transaction.get(targetRef);
                     if(!sourceSnap.exists() || !targetSnap.exists()) throw new Error('找不到聚餐或旅遊專案，請重新開啟確認。');
+                    if(auth.currentUser?.uid!==currentUser.uid) throw new Error('登入帳號已變更，尚未匯入。');
                     const source=sourceSnap.data(),target=targetSnap.data();
                     if(source.type!=='dining' || target.type!=='travel') throw new Error('請選擇有效的旅遊專案。');
                     const api=window.SplitEasyDiningImport;
@@ -2778,8 +3024,10 @@
                     const expense=api.build(source.data,target.data,{...request,sourceProjectId:sourceId,expenseId,importedAt},calculation,getDiningExpenseRows(source.data,calculation));
                     const targetData={...target.data,expenses:[...(target.data.expenses || []),expense]};
                     const sourceData={...source.data,travelImport:{targetProjectId:request.targetProjectId,targetProjectName:target.data.name || target.name || '未命名旅遊',expenseId,importedAt}};
-                    const updatedSource={...source,data:sourceData,updatedAt:importedAt,lastUpdatedBy:currentUser.uid};
-                    const updatedTarget={...target,data:targetData,updatedAt:importedAt,lastUpdatedBy:currentUser.uid};
+                    const updatedSource=window.EntryRecycleBin.appendHistory(source,{...source,data:sourceData,updatedAt:importedAt,lastUpdatedBy:currentUser.uid},recoveryActor(currentUser),expenseId+'-source',importedAt);
+                    const updatedTarget=window.EntryRecycleBin.appendHistory(target,{...target,data:targetData,updatedAt:importedAt,lastUpdatedBy:currentUser.uid},recoveryActor(currentUser),expenseId+'-target',importedAt);
+                    updatedSource.recoveryWriteToken = expenseId+'-source'; updatedTarget.recoveryWriteToken = expenseId+'-target';
+                    updatedSource.recoveryWriteRevision = (Number(source.recoveryWriteRevision) || 0) + 1; updatedTarget.recoveryWriteRevision = (Number(target.recoveryWriteRevision) || 0) + 1;
                     transaction.set(targetRef,updatedTarget);transaction.set(sourceRef,updatedSource);
                     return {source:{id:sourceId,...updatedSource},target:{id:request.targetProjectId,...updatedTarget}};
                 });
@@ -2820,21 +3068,29 @@
                     title: '登出 A.A 2GETHER',
                     message: '專案仍會安全保存在雲端，下次登入同一個 Google 帳號即可找回。',
                     confirmText: '確認登出',
-                    onConfirm: () => signOut(auth).catch(error => console.error('Sign out error:', error))
+                    onConfirm: async () => {
+                        if (recoveryBusyRef.current || syncInFlightRef.current) return showMessage({ message: '正在同步，請稍候再登出。' });
+                        if (debounceTimer.current) clearTimeout(debounceTimer.current);
+                        await flushPendingProjectUpdate();
+                        if (pendingProjectUpdateRef.current?.operations?.length) return showMessage({ title: '請先處理未同步草稿', message: '仍有修改尚未寫入雲端，請先下載備份並處理草稿，再登出。' });
+                        signOut(auth).catch(error => console.error('Sign out error:', error));
+                    }
                 });
             };
 
-            if (showSplash || !authReady) return <SplashScreen />;
+            if (showSplash || !authReady || !splashHoldComplete) return <SplashScreen />;
             if (!user) return <LoginScreen onLogin={handleGoogleLogin} isLoggingIn={isLoggingIn} error={authError} hasInvite={hasPendingInvite} />;
 
             return (
                 <div className="min-h-screen">
                     <DialogModal dialog={dialog} onClose={() => setDialog(null)} />
+                    {recoveryBusy && <div ref={recoveryStatusRef} tabIndex={-1} role="status" aria-live="polite" className="fixed inset-0 z-[10000] bg-black/40 flex items-center justify-center p-6"><p className="bg-white rounded-2xl p-6 text-slate-800 font-bold">正在確認雲端帳目，請稍候…</p></div>}
+                    {showRecovery && view === 'activeProject' && activeProjectData && <RecoveryPanel project={activeProjectData} onClose={() => setShowRecovery(false)} busy={recoveryBusy} onRestore={id => runRecoveryAction(activeProjectData.id, 'restore', id)} />}
                     <ShareInviteModal invite={shareInvite} onClose={() => setShareInvite(null)} />
                     {showCollaborationManager && activeProjectData?.ownerId === user.uid && <CollaborationManagerModal project={activeProjectData} user={user} onClose={() => setShowCollaborationManager(false)} onCreateInvite={handleShareProject} requestConfirm={setDialog} showMessage={showMessage} />}
-                    <header className="aa-header bg-white shadow-sm sticky top-0 z-10 px-4 py-3 flex items-center justify-between">
+                    <header inert={recoveryBusy ? '' : undefined} className="aa-header bg-white shadow-sm sticky top-0 z-10 px-4 py-3 flex items-center justify-between">
                         {view === 'activeProject' ? (
-                            <button onClick={() => { setShowCollaborationManager(false); setView('projectList'); setCurrentProjectId(null); setActiveProjectData(null); }} className="flex items-center gap-1 text-slate-500 font-bold"><i className="fa-solid fa-arrow-left"></i> 首頁</button>
+                            <button onClick={leaveActiveProject} className="flex items-center gap-1 text-slate-500 font-bold"><i className="fa-solid fa-arrow-left"></i> 首頁</button>
                         ) : (
                             <div className="brand-header-logo"><img className="brand-logo" src="./assets/brand/aa-2gether-logo.webp" alt="A.A 2GETHER" /></div>
                         )}
@@ -2858,12 +3114,14 @@
 
                     {authPersistenceWarning && <div className="max-w-md mx-auto bg-amber-50 border-b border-amber-100 px-4 py-3 text-xs leading-relaxed text-amber-800"><i className="fa-solid fa-lock-open mr-2"></i>{authPersistenceWarning}</div>}
 
-                    <main className="aa-main max-w-md mx-auto min-h-[calc(100vh-60px)] relative bg-slate-50">
+                    <main inert={recoveryBusy ? '' : undefined} className="aa-main max-w-md mx-auto min-h-[calc(100vh-60px)] relative bg-slate-50">
+                        {view === 'activeProject' && activeProjectData && <div className="aa-recovery-toolbar px-4 py-2 flex justify-end"><button type="button" className="px-3 py-2 rounded-xl bg-blue-50 text-blue-700 text-xs font-bold" onClick={() => setShowRecovery(true)}><i className="fa-solid fa-clock-rotate-left mr-2" aria-hidden="true"></i>回收桶與紀錄</button></div>}
+                        {view === 'activeProject' && syncConflict?.projectId === currentProjectId && <div role="alert" className="m-4 p-4 bg-amber-50 border border-amber-200 rounded-xl text-sm"><p className="font-bold">有修改尚未同步</p><p className="my-2">{syncConflict.message}</p><div className="flex flex-wrap gap-2"><button className="p-2 border rounded-lg" onClick={downloadPendingDraft}>下載未同步修改</button><button className="p-2 border rounded-lg" onClick={requestDiscardConflictingDraft}>捨棄草稿並載入最新</button></div></div>}
                         {view === 'projectList' && <ProjectList projects={projects} isLoading={projectsLoading} warning={projectIndexWarning} onSelect={(id) => { const selected = projects.find(project => project.id === id); if (selected?.accessPending) { setProjectsLoading(true); setProjectListRetryRevision(revision => revision + 1); setDialog({ type: 'alert', title: '正在重新確認', message: '這筆首頁索引仍保留。系統正在重新確認登入與專案權限，請稍後再點一次。' }); return; } setCurrentProjectId(id); setActiveProjectData(selected || null); setView('activeProject'); }} onCreate={() => setView('createProject')} onRemove={handleRemoveProject} />}
                         {view === 'createProject' && <CreateProjectScreen onCancel={() => setView('projectList')} onCreate={createProject} showMessage={showMessage} />}
                         {view === 'activeProject' && !activeProjectData && <div className="py-20 text-center text-slate-400"><i className="fa-solid fa-spinner fa-spin text-2xl"></i><p className="mt-3 text-sm">正在載入共編專案…</p></div>}
-                        {view === 'activeProject' && activeProjectData?.type === 'travel' && <TravelMode projectData={activeProjectData.data} onUpdate={updateCurrentData} showMessage={showMessage} />}
-                        {view === 'activeProject' && activeProjectData?.type === 'dining' && <DiningMode projectData={activeProjectData.data} onUpdate={updateCurrentData} showMessage={showMessage} sourceProjectId={currentProjectId} travelProjects={projects.filter(p=>p.type==='travel' && !p.accessPending && p.data)} onImportToTravel={importDiningToTravel} />}
+                        {view === 'activeProject' && activeProjectData?.type === 'travel' && <TravelMode key={currentProjectId} projectData={activeProjectData.data} onUpdate={updateCurrentData} showMessage={showMessage} onDeleteEntry={requestDeleteEntry} onDeleteDay={requestDeleteTravelDay} onAddDay={addTravelDay} />}
+                        {view === 'activeProject' && activeProjectData?.type === 'dining' && <DiningMode key={currentProjectId} projectData={activeProjectData.data} onDeleteEntry={requestDeleteEntry} onUpdate={updateCurrentData} showMessage={showMessage} sourceProjectId={currentProjectId} travelProjects={projects.filter(p=>p.type==='travel' && !p.accessPending && p.data)} onImportToTravel={importDiningToTravel} />}
                         <div className="py-5 text-center"><VersionBadge /></div>
                     </main>
                 </div>

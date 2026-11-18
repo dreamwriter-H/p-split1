@@ -40,6 +40,22 @@ service cloud.firestore {
         && get(productionInvitePath(projectId, inviteId)).data.status == 'active';
     }
 
+    // Once a project uses recovery-aware writes, every update must advance its
+    // revision and rotate its token. Older clients only copy/remove these fields;
+    // even an older, different token cannot replay a stale project revision.
+    // This is a compatibility gate, not an immutable audit log or security secret.
+    function validRecoveryWrite() {
+      return !resource.data.keys().hasAny(['recoveryWriteToken', 'recoveryWriteRevision'])
+        || (
+          request.resource.data.keys().hasAll(['recoveryWriteToken', 'recoveryWriteRevision'])
+          && request.resource.data.recoveryWriteToken is string
+          && request.resource.data.recoveryWriteToken.size() >= 16
+          && request.resource.data.recoveryWriteToken != resource.data.get('recoveryWriteToken', '')
+          && request.resource.data.recoveryWriteRevision is int
+          && request.resource.data.recoveryWriteRevision == resource.data.get('recoveryWriteRevision', 0) + 1
+        );
+    }
+
     // v2.2 正式資料：專案、成員與邀請只存在全新的正式資料空間。
     match /apps/spliteasy-v2-2-prod/projects/{projectId} {
       allow create: if isGoogleUser()
@@ -56,7 +72,8 @@ service cloud.firestore {
       allow update: if isProductionMember(projectId)
         && request.resource.data.ownerId == resource.data.ownerId
         && request.resource.data.type == resource.data.type
-        && request.resource.data.schemaVersion == resource.data.schemaVersion;
+        && request.resource.data.schemaVersion == resource.data.schemaVersion
+        && validRecoveryWrite();
 
       allow delete: if isProductionOwner(projectId);
 
