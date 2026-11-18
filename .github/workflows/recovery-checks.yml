@@ -10,6 +10,7 @@ on:
       - dining-trip-import.js
       - firestore.rules
       - firebase.json
+      - firebase.emulator.json
       - functions/**
       - tests/**
       - .github/workflows/recovery-checks.yml
@@ -45,4 +46,4 @@ jobs:
           require('@babel/standalone').transform(source, { presets: ['react'], sourceType: 'module' });
           JS
       - name: Test Firestore rules locally with demo data
-        run: tests/node_modules/.bin/firebase emulators:exec --only firestore --project demo-aa-recovery-rules --config tests/firebase.emulator.json "node tests/recovery-rules.emulator.cjs"
+        run: tests/node_modules/.bin/firebase emulators:exec --only firestore --project demo-aa-recovery-rules --config firebase.emulator.json "node tests/recovery-rules.emulator.cjs"
