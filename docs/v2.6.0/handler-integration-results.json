@@ -1,5 +1,5 @@
 {
-  "sourceSha256": "1120765d1c2ace13a6f8af587335c75231ed2dddcc31f562f6d9d3eb1ea66a29",
+  "sourceSha256": "43f95c8245c14af5ef078614cf0c8c1e39605f56dba4e116e9f2def34b47da54",
   "tests": [
     {
       "name": "single entry UI cancel then delete confirmation; seven-day archive and minute audit",

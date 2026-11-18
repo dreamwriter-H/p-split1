@@ -1,0 +1,262 @@
+{
+  "sourceSha": "43f95c8245c14af5ef078614cf0c8c1e39605f56dba4e116e9f2def34b47da54",
+  "moduleSha": "24a48de54d8a6066ef23eda522542041aabb959d2c251a9b610913d73c0593af",
+  "cases": [
+    {
+      "name": "migrated-unexpired-open-and-one-minute",
+      "passed": true,
+      "opening": {
+        "transactionCalls": 0,
+        "transactionReads": 0,
+        "transactionWrites": 0,
+        "getDoc": 1,
+        "archiveCount": 1,
+        "history": [
+          {
+            "id": "fixture-delete:expenses:archive-me:delete",
+            "at": "2026-11-12T00:00:00.000Z",
+            "actorId": "fixture-user",
+            "actorName": "測試成員",
+            "action": "delete",
+            "collection": "expenses",
+            "entryId": "archive-me",
+            "label": "待清理咖啡",
+            "changedFields": [],
+            "archiveId": "fixture-delete"
+          }
+        ],
+        "active": [
+          {
+            "id": "active",
+            "desc": "現存午餐",
+            "amount": 900,
+            "day": 1,
+            "payers": {
+              "1": 900
+            },
+            "splitBetween": [
+              1,
+              2
+            ]
+          }
+        ]
+      },
+      "afterMinute": {
+        "transactionCalls": 0,
+        "transactionReads": 0,
+        "transactionWrites": 0,
+        "getDoc": 1,
+        "archiveCount": 1,
+        "history": [
+          {
+            "id": "fixture-delete:expenses:archive-me:delete",
+            "at": "2026-11-12T00:00:00.000Z",
+            "actorId": "fixture-user",
+            "actorName": "測試成員",
+            "action": "delete",
+            "collection": "expenses",
+            "entryId": "archive-me",
+            "label": "待清理咖啡",
+            "changedFields": [],
+            "archiveId": "fixture-delete"
+          }
+        ],
+        "active": [
+          {
+            "id": "active",
+            "desc": "現存午餐",
+            "amount": 900,
+            "day": 1,
+            "payers": {
+              "1": 900
+            },
+            "splitBetween": [
+              1,
+              2
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "expired-open-cleans-latest-preserves-active-and-history",
+      "passed": true,
+      "after": {
+        "transactionCalls": 1,
+        "transactionReads": 1,
+        "transactionWrites": 1,
+        "getDoc": 1,
+        "archiveCount": 0,
+        "history": [
+          {
+            "id": "fixture-delete:expenses:archive-me:delete",
+            "at": "2026-11-10T23:59:59.999Z",
+            "actorId": "fixture-user",
+            "actorName": "測試成員",
+            "action": "delete",
+            "collection": "expenses",
+            "entryId": "archive-me",
+            "label": "待清理咖啡",
+            "changedFields": [],
+            "archiveId": "fixture-delete"
+          },
+          {
+            "id": "remote-history",
+            "action": "edit",
+            "label": "遠端更新",
+            "at": "2026-11-18T00:00:00.000Z"
+          }
+        ],
+        "active": [
+          {
+            "id": "active",
+            "desc": "現存午餐",
+            "amount": 900,
+            "day": 1,
+            "payers": {
+              "1": 900
+            },
+            "splitBetween": [
+              1,
+              2
+            ]
+          },
+          {
+            "id": "remote-added",
+            "desc": "交易前其他人成員新增",
+            "amount": 88,
+            "day": 1,
+            "payers": {
+              "2": 88
+            },
+            "splitBetween": [
+              1,
+              2
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "closed-account-does-not-clean-expired-archive",
+      "passed": true,
+      "after": {
+        "transactionCalls": 0,
+        "transactionReads": 0,
+        "transactionWrites": 0,
+        "getDoc": 1,
+        "archiveCount": 1,
+        "history": [
+          {
+            "id": "fixture-delete:expenses:archive-me:delete",
+            "at": "2026-11-11T00:00:30.000Z",
+            "actorId": "fixture-user",
+            "actorName": "測試成員",
+            "action": "delete",
+            "collection": "expenses",
+            "entryId": "archive-me",
+            "label": "待清理咖啡",
+            "changedFields": [],
+            "archiveId": "fixture-delete"
+          }
+        ],
+        "active": [
+          {
+            "id": "active",
+            "desc": "現存午餐",
+            "amount": 900,
+            "day": 1,
+            "payers": {
+              "1": 900
+            },
+            "splitBetween": [
+              1,
+              2
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "open-account-local-minute-check-only-transacts-when-expired",
+      "passed": true,
+      "after": {
+        "transactionCalls": 1,
+        "transactionReads": 1,
+        "transactionWrites": 1,
+        "getDoc": 1,
+        "archiveCount": 0,
+        "history": [
+          {
+            "id": "fixture-delete:expenses:archive-me:delete",
+            "at": "2026-11-11T00:00:30.000Z",
+            "actorId": "fixture-user",
+            "actorName": "測試成員",
+            "action": "delete",
+            "collection": "expenses",
+            "entryId": "archive-me",
+            "label": "待清理咖啡",
+            "changedFields": [],
+            "archiveId": "fixture-delete"
+          }
+        ],
+        "active": [
+          {
+            "id": "active",
+            "desc": "現存午餐",
+            "amount": 900,
+            "day": 1,
+            "payers": {
+              "1": 900
+            },
+            "splitBetween": [
+              1,
+              2
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "legacy-account-migrates-once-then-no-idle-cleanup-read",
+      "passed": true,
+      "after": {
+        "transactionCalls": 1,
+        "transactionReads": 1,
+        "transactionWrites": 1,
+        "getDoc": 1,
+        "archiveCount": 1,
+        "history": [
+          {
+            "id": "fixture-delete:expenses:archive-me:delete",
+            "at": "2026-11-12T00:00:00.000Z",
+            "actorId": "fixture-user",
+            "actorName": "測試成員",
+            "action": "delete",
+            "collection": "expenses",
+            "entryId": "archive-me",
+            "label": "待清理咖啡",
+            "changedFields": [],
+            "archiveId": "fixture-delete"
+          }
+        ],
+        "active": [
+          {
+            "id": "active",
+            "desc": "現存午餐",
+            "amount": 900,
+            "day": 1,
+            "payers": {
+              "1": 900
+            },
+            "splitBetween": [
+              1,
+              2
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "limitations": "Full production App+original cleanup effect, natural React scheduling. Date.now is fixed/advanced; only60000ms interval callbacks are controlled. Firebase is a memory adapter, no emulator/rules/live backend validation."
+}

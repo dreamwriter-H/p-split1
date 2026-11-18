@@ -2,7 +2,7 @@
 
 狀態：功能草稿已存 GitHub 分支 `feat/v2.6.0-recovery-history`；正式 `main` 與 Firebase 尚未部署這批變更。
 
-本次測試的 `index.html` SHA-256 為 `1120765d1c2ace13a6f8af587335c75231ed2dddcc31f562f6d9d3eb1ea66a29`。
+本次測試的 `index.html` SHA-256 為 `43f95c8245c14af5ef078614cf0c8c1e39605f56dba4e116e9f2def34b47da54`。
 
 ## 本機已通過
 
@@ -14,6 +14,7 @@
 | 回收桶元件 | 32 項通過 | 320/390px、無橫向溢出、臺灣 HH:mm、過期隱藏、鍵盤 tabs、焦點、busy/error/empty |
 | 開場額外停留 | 6/6 通過 | 真實 App effect＋虛擬時鐘，快／慢 auth、999/1000ms、卸載取消、8s 安全逾時、後續登入不重播 |
 | 聚餐手機日期欄 | Chromium 320/375/390px 通過 | 父層與畫面右界、填入／清空、真實 click 觸發原生 showPicker |
+| Spark 清理行為 | 5/5 通過 | 未到期不新增清理讀取，到期只清回收資料，保留同時新增的支出與歷程，關閉帳本後停止清理 |
 | 語法及 patch | 通過 | Babel 解析實際 JSX、JS 語法、git diff --check |
 
 可重跑的核心檢查：

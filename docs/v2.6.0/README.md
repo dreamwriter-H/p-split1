@@ -13,6 +13,7 @@
 
 - [15 個 handler 整合情境](handler-integration-results.json)
 - [9 個完整 App 回歸情境](app-regression-results.json)
+- [5 個免費方案清理情境](spark-cleanup-results.json)
 - [32 個回收桶元件檢查](recovery-panel-results.json)
 - [6 個開場計時情境](splash-results.json)
 - [手機日期欄界線與 picker](date-field-results.json)

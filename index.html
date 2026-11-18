@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>A.A 2GETHER - 聚餐旅遊共同分帳</title>
-    <link rel="stylesheet" href="./assets/brand/app-ui.css?v=2.5.0">
+    <link rel="stylesheet" href="./assets/brand/app-ui.css?v=2.6.0">
     <script src="https://cdn.tailwindcss.com"></script>
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
@@ -15,10 +15,10 @@
     <script src="./invoice-qr-parser.js?v=2.2.0"></script>
     <script src="./receipt-ocr.js?v=2.2.0"></script>
     <script src="./receipt-item-parser.js?v=2.4.0-prod-r1"></script>
-    <script src="./dining-trip-import.js?v=2.6.0-review-r1"></script>
-    <script src="./entry-recycle-bin.js?v=2.6.0-review-r2"></script>
-    <script src="./recovery-panel.js?v=2.6.0-review-r1"></script>
-    <link rel="stylesheet" href="./recovery-panel.css?v=2.6.0-review-r1">
+    <script src="./dining-trip-import.js?v=2.6.0"></script>
+    <script src="./entry-recycle-bin.js?v=2.6.0"></script>
+    <script src="./recovery-panel.js?v=2.6.0"></script>
+    <link rel="stylesheet" href="./recovery-panel.css?v=2.6.0">
 
     <style>
         .no-scrollbar::-webkit-scrollbar { display: none; }
@@ -99,8 +99,8 @@
         const auth = getAuth(app);
         const db = getFirestore(app);
         const FIREBASE_APP_ID = 'spliteasy-2026';
-        const APP_VERSION = '2.6.0-dev';
-        const BUILD_ID = 'v2.6.0-review-r2';
+        const APP_VERSION = '2.6.0';
+        const BUILD_ID = 'v2.6.0-prod-r1';
         // v2.2 正式版使用全新的資料空間與首頁索引，不載入任何舊版帳本。
         const DATA_SPACE = 'spliteasy-v2-2-prod';
         const USER_INDEX_SPACE = 'spliteasy-v2-2-prod';

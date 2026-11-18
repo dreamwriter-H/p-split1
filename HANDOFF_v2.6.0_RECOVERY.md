@@ -44,4 +44,6 @@ node --test tests/*.test.cjs
 2. 確認 Firebase 專案 `spliteasy-2026`，部署 `firestore.rules`；使用授權測試帳本驗證成員可讀寫、新舊版本檢查，以及刪除／還原交易。不要拿真實帳本做破壞性測試。
 3. 驗證通過後合併前端至 `main`，等待 GitHub Pages 完成並檢查正式手機畫面。iOS Safari 的原生日期 UI 尚需真機確認。
 
+若雲端未取得 Firebase 管理權限，可由有權限的帳號先登入 [Firebase 主控台](https://console.firebase.google.com/project/spliteasy-2026/firestore)，開啟 Firestore Database 的「規則」分頁，貼入這個分支的完整 `firestore.rules` 並發布。確認規則已發布，再從雲端接續網站發布。
+
 回退時不可直接把前端退到不認識日序／回收版本欄位的舊版：已升級的帳本會被新版規則拒絕舊寫入，而且舊畫面不認識刪除後的日序。保留相容資料層，必要時只回退外觀；不要刪除回收資料、降低版本或放寬規則來掩蓋問題。
